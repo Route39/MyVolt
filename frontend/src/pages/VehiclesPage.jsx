@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, ArrowLeftRight } from "lucide-react";
+import { Plus, Pencil, ArrowLeftRight, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DriverSearch } from "@/components/DriverSearch";
+import { ImportDialog } from "@/components/ImportDialog";
 import { api, errMsg } from "@/lib/api";
 import { PageHeader, Pager, usePaged } from "@/components/kit";
 
@@ -97,6 +98,7 @@ export default function VehiclesPage() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(undefined);
   const [assign, setAssign] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const load = useCallback(() => api.get("/vehicles", { params: { q } }).then((r) => setRows(r.data)), [q]);
   const [status, setStatus] = useState("all");
   const filtered = rows.filter((v) => status === "all" || v.status === status);
@@ -108,7 +110,12 @@ export default function VehiclesPage() {
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Vehicle Management" subtitle={`${rows.length} vehicles · Vehicle IDs are permanent and never reused`}
-        actions={<Button onClick={() => setEdit(null)} data-testid="add-vehicle-button"><Plus className="mr-1.5 h-4 w-4" />Add vehicle</Button>} />
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-vehicles-button"><FileUp className="mr-1.5 h-4 w-4" />Import PDF / Excel</Button>
+            <Button onClick={() => setEdit(null)} data-testid="add-vehicle-button"><Plus className="mr-1.5 h-4 w-4" />Add vehicle</Button>
+          </div>
+        } />
       <div className="r-card overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <Input placeholder="Search Vehicle ID, registration, city" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="vehicles-search" />
@@ -142,6 +149,7 @@ export default function VehiclesPage() {
       </div>
       <VehicleDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} vehicle={edit} onSaved={load} />
       <AssignDriverDialog open={!!assign} onOpenChange={(o) => !o && setAssign(null)} vehicle={assign} onSaved={load} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="vehicles" onImported={load} />
     </div>
   );
 }

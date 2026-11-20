@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight } from "lucide-react";
+import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { DriverFormDialog, AdjustmentsDialog } from "@/components/DriverDialogs";
 import { VehicleAssignDialog } from "@/components/Vehicles";
+import { ImportDialog } from "@/components/ImportDialog";
 import { api, errMsg } from "@/lib/api";
 import { fmtDate, inr } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,6 +46,7 @@ export default function DriversPage() {
   const [edit, setEdit] = useState(undefined);
   const [adj, setAdj] = useState(null);
   const [veh, setVeh] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState("all");
   const cities = [...new Set(rows.map((d) => d.city))].sort();
@@ -60,7 +62,12 @@ export default function DriversPage() {
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Driver Management" subtitle={`${rows.length} drivers · Driver IDs are permanent`}
-        actions={<Button onClick={() => setEdit(null)} data-testid="add-driver-button"><Plus className="mr-1.5 h-4 w-4" />Add driver</Button>} />
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-drivers-button"><FileUp className="mr-1.5 h-4 w-4" />Import PDF / Excel</Button>
+            <Button onClick={() => setEdit(null)} data-testid="add-driver-button"><Plus className="mr-1.5 h-4 w-4" />Add driver</Button>
+          </div>
+        } />
       <div className="r-card overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <Input placeholder="Search name, mobile, Driver ID, vehicle" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="drivers-search" />
@@ -101,6 +108,7 @@ export default function DriversPage() {
       <DriverFormDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} driver={edit} onSaved={load} />
       <AdjustmentsDialog open={!!adj} onOpenChange={(o) => !o && setAdj(null)} driver={adj} onSaved={load} />
       <VehicleAssignDialog open={!!veh} onOpenChange={(o) => !o && setVeh(null)} driver={veh} onSaved={load} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers_and_vehicles" onImported={load} />
     </div>
   );
 }

@@ -25,6 +25,7 @@ import bcrypt
 import jwt
 
 import storage
+import importer
 from seed import seed
 
 client = AsyncIOMotorClient(os.environ.get('MONGO_URL', 'mongodb://localhost:27017'))
@@ -241,6 +242,27 @@ class TxnEdit(BaseModel):
 
 class RejectIn(BaseModel):
     remarks: str = Field(min_length=3)
+
+
+class ImportRowIn(BaseModel):
+    name: str = ""
+    mobile: str = ""
+    city: str = "Bengaluru"
+    daily_rent: float = 700.0
+    joining_date: str = ""
+    handover_date: Optional[str] = None
+    rent_start_date: Optional[str] = None
+    driver_code: Optional[str] = None
+    reg_no: str = ""
+    vehicle_type: str = ""
+    status: str = "Active"
+    details: str = ""
+
+
+class ImportCommitIn(BaseModel):
+    mode: Literal["drivers_and_vehicles", "drivers", "vehicles"] = "drivers_and_vehicles"
+    update_existing: bool = True
+    rows: List[ImportRowIn]
 
 
 # ---------- users & settings ----------
@@ -586,6 +608,158 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
     if new["reg_no"] != old["reg_no"]:
         await db.drivers.update_many({"current_vehicle_id": vid}, {"$set": {"vehicle_no": new["reg_no"]}})
     return await db.vehicles.find_one({"vehicle_id": vid}, P)
+
+
+@api.post("/import/parse")
+async def import_parse(file: UploadFile = File(...), user=Depends(require("admin"))):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in ("pdf", "xlsx", "xlsm", "csv"):
+        raise HTTPException(400, "Only PDF, Excel (.xlsx), or CSV files are supported")
+    data = await file.read()
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(400, "Import file must be under 20 MB")
+    try:
+        return await asyncio.to_thread(importer.parse_import_file, file.filename or "upload.pdf", data, today_ist().isoformat())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        logger.error("import_parse failed: %s", exc)
+        raise HTTPException(400, f"Could not read file: {exc}")
+
+
+@api.post("/import/commit")
+async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
+    today_str = today_ist().isoformat()
+    last_drivers = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(10000)
+    nums = [int(d["id"].split("-")[-1]) for d in last_drivers if d["id"].split("-")[-1].isdigit()]
+    next_drv_num = (max(nums) if nums else 1000) + 1
+
+    drivers_created = 0
+    drivers_updated = 0
+    vehicles_created = 0
+    vehicles_updated = 0
+    assignments_created = 0
+    errors: List[str] = []
+
+    for idx, row in enumerate(body.rows):
+        try:
+            city = importer.clean_city(row.city, default="Bengaluru")
+            veh_doc = None
+            reg_clean = importer.clean_reg_no(row.reg_no)
+
+            if body.mode in ("vehicles", "drivers_and_vehicles") and reg_clean:
+                rk = reg_key(reg_clean)
+                veh_doc = await db.vehicles.find_one({"reg_key": rk}, P)
+                veh_status = importer.clean_status(row.status, kind="vehicle")
+                if not veh_doc:
+                    veh_doc = await insert_vehicle(reg_clean, city, row.vehicle_type.strip(), veh_status, row.details.strip())
+                    vehicles_created += 1
+                    await audit(user, "Vehicle imported", "vehicle", veh_doc["vehicle_id"], None, f"{veh_doc['reg_no']} · {city}")
+                elif body.update_existing:
+                    upd_v = {"city": city}
+                    if row.vehicle_type.strip():
+                        upd_v["vehicle_type"] = row.vehicle_type.strip()
+                    if row.details.strip():
+                        upd_v["details"] = row.details.strip()
+                    await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": upd_v})
+                    veh_doc = await db.vehicles.find_one({"vehicle_id": veh_doc["vehicle_id"]}, P)
+                    vehicles_updated += 1
+
+            if body.mode in ("drivers", "drivers_and_vehicles") and row.name.strip():
+                name = re.sub(r"\s+", " ", row.name.strip())
+                mobile = importer.clean_mobile(row.mobile)
+                if len(mobile) > 10:
+                    mobile = mobile[-10:]
+                elif 0 < len(mobile) < 10:
+                    mobile = mobile.ljust(10, "0")
+                elif not mobile:
+                    mobile = "9000000000"
+
+                joining = importer.clean_date(row.joining_date, today_str)
+                handover = importer.clean_date(row.handover_date, joining) if (row.handover_date or "").strip() else joining
+                rent_start_dt = importer.clean_date(row.rent_start_date, handover) if (row.rent_start_date or "").strip() else handover
+                daily_rent = max(float(row.daily_rent or 700.0), 1.0)
+                drv_status = importer.clean_status(row.status, kind="driver")
+
+                code_in = (row.driver_code or "").strip().upper()
+                drv_doc = None
+                if code_in and DRIVER_CODE_RX.match(code_in):
+                    drv_doc = await db.drivers.find_one({"driver_code": code_in}, P)
+                if not drv_doc:
+                    drv_doc = await db.drivers.find_one(
+                        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "mobile": mobile}, P
+                    )
+
+                if not drv_doc:
+                    if code_in and DRIVER_CODE_RX.match(code_in) and not await db.drivers.find_one({"driver_code": code_in}):
+                        code = code_in
+                    else:
+                        code = await next_code("driver", city_prefix(city))
+                    drv_id = f"R39-DRV-{next_drv_num}"
+                    next_drv_num += 1
+                    drv_doc = {
+                        "id": drv_id,
+                        "driver_code": code,
+                        "name": name,
+                        "mobile": mobile,
+                        "city": city,
+                        "joining_date": joining,
+                        "handover_date": handover,
+                        "rent_start_date": rent_start_dt,
+                        "daily_rent": daily_rent,
+                        "status": drv_status,
+                        "rent_free_dates": [],
+                        "vehicle_no": "",
+                        "current_vehicle_id": None,
+                        "adjustments": [],
+                        "created_at": now_iso(),
+                    }
+                    await db.drivers.insert_one(drv_doc)
+                    drv_doc.pop("_id", None)
+                    drivers_created += 1
+                    await audit(user, "Driver imported", "driver", drv_id, None, f"{code} · {name} · {inr(daily_rent)}/day", drv_id)
+                elif body.update_existing:
+                    upd_d = {
+                        "city": city,
+                        "daily_rent": daily_rent,
+                        "joining_date": joining,
+                        "handover_date": handover,
+                        "rent_start_date": rent_start_dt,
+                        "status": drv_status,
+                    }
+                    await db.drivers.update_one({"id": drv_doc["id"]}, {"$set": upd_d})
+                    drv_doc = await db.drivers.find_one({"id": drv_doc["id"]}, P)
+                    drivers_updated += 1
+
+                if veh_doc and veh_doc.get("status") != "Inactive":
+                    if drv_doc.get("current_vehicle_id") != veh_doc["vehicle_id"]:
+                        other = await db.drivers.find_one(
+                            {"current_vehicle_id": veh_doc["vehicle_id"], "id": {"$ne": drv_doc["id"]}}, P
+                        )
+                        if not other:
+                            await assign_vehicle(drv_doc, veh_doc["vehicle_id"], user, "Imported from file")
+                            assignments_created += 1
+        except HTTPException as exc:
+            errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc.detail}")
+        except Exception as exc:
+            errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc}")
+
+    await audit(
+        user,
+        "Bulk data imported",
+        "import",
+        body.mode,
+        None,
+        f"Drivers +{drivers_created}/~{drivers_updated} · Vehicles +{vehicles_created}/~{vehicles_updated} · Assigned {assignments_created}",
+    )
+    return {
+        "drivers_created": drivers_created,
+        "drivers_updated": drivers_updated,
+        "vehicles_created": vehicles_created,
+        "vehicles_updated": vehicles_updated,
+        "assignments_created": assignments_created,
+        "errors": errors,
+    }
 
 
 async def migrate_ids():
