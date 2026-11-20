@@ -43,7 +43,8 @@ const Shell = () => {
   if (!user) {
     return (
       <Routes>
-        <Route path="*" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
   }

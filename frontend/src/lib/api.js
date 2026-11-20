@@ -6,11 +6,38 @@ export const TOKEN_KEY = "r39_token";
 
 export const api = axios.create({ baseURL: API });
 
+const imageCache = new Map();
+
+export const clearImageCache = () => {
+  imageCache.forEach((p) => {
+    Promise.resolve(p)
+      .then((url) => {
+        if (typeof url === "string") URL.revokeObjectURL(url);
+      })
+      .catch(() => {});
+  });
+  imageCache.clear();
+};
+
 api.interceptors.request.use((cfg) => {
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) cfg.headers["Authorization"] = `Bearer ${token}`;
   return cfg;
 });
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const url = err?.config?.url || "";
+    if (err?.response?.status === 401 && !url.includes("/auth/login")) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      clearImageCache();
+      window.dispatchEvent(new Event("r39:unauthorized"));
+    }
+    return Promise.reject(err);
+  }
+);
 
 export const errMsg = (e) => {
   const d = e?.response?.data?.detail;
@@ -29,7 +56,6 @@ export const downloadBlob = (blob, filename) => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-const imageCache = new Map();
 export const fetchImage = (fileId) => {
   if (!imageCache.has(fileId)) {
     const p = api.get(`/files/${fileId}`, { responseType: "blob" }).then((r) => URL.createObjectURL(r.data));

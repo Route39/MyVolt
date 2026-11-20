@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ const FEATURES = [
 
 export default function LoginPage() {
   const { login } = useUser();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -26,8 +28,9 @@ export default function LoginPage() {
     setError("");
     setBusy(true);
     try {
-      const u = await login(email, password);
+      const u = await login(email.trim(), password);
       toast.success(`Welcome back, ${u.name}`);
+      navigate("/", { replace: true });
     } catch (err) {
       setError(errMsg(err));
     } finally {

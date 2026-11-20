@@ -114,3 +114,34 @@ class TestAuthLogin:
 
         logout = requests.post(f"{API}/auth/logout", headers=admin_h)
         assert logout.status_code == 200 and logout.json()["ok"] is True
+
+    def test_all_seeded_accounts_login_and_role_access(self):
+        accounts = [
+            ("anita.admin@route39.in", "u-admin", "admin"),
+            ("priya.accounts@route39.in", "u-acc-1", "accounts"),
+            ("farhan.accounts@route39.in", "u-acc-2", "accounts"),
+            ("ravi.staff@route39.in", "u-staff-1", "staff"),
+            ("suresh.staff@route39.in", "u-staff-2", "staff"),
+            ("meena.staff@route39.in", "u-staff-3", "staff"),
+        ]
+        for email, uid, role in accounts:
+            r = requests.post(f"{API}/auth/login", json={"email": email, "password": "route39@123"})
+            assert r.status_code == 200, (email, r.text)
+            data = r.json()
+            assert data["user"]["id"] == uid
+            assert data["user"]["role"] == role
+            hdrs = {"Authorization": f"Bearer {data['token']}"}
+
+            assert requests.get(f"{API}/me", headers=hdrs).status_code == 200
+            assert requests.get(f"{API}/overview", headers=hdrs).status_code == 200
+            assert requests.get(f"{API}/board", headers=hdrs).status_code == 200
+
+            if role == "admin":
+                assert requests.get(f"{API}/users", headers=hdrs).status_code == 200
+                assert requests.get(f"{API}/reports/pending", headers=hdrs).status_code == 200
+            elif role == "accounts":
+                assert requests.get(f"{API}/reports/pending", headers=hdrs).status_code == 200
+                assert requests.get(f"{API}/users", headers=hdrs).status_code == 403
+            elif role == "staff":
+                assert requests.get(f"{API}/reports/pending", headers=hdrs).status_code == 403
+                assert requests.get(f"{API}/users", headers=hdrs).status_code == 403

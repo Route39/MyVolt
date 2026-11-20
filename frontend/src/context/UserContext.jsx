@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, TOKEN_KEY, USER_KEY } from "@/lib/api";
+import { api, clearImageCache, TOKEN_KEY, USER_KEY } from "@/lib/api";
 
 const Ctx = createContext(null);
 
@@ -22,6 +22,7 @@ export const UserProvider = ({ children }) => {
     } catch {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
+      clearImageCache();
       setUser(null);
     } finally {
       setLoading(false);
@@ -31,6 +32,12 @@ export const UserProvider = ({ children }) => {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null);
+    window.addEventListener("r39:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("r39:unauthorized", onUnauthorized);
+  }, []);
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
@@ -48,6 +55,7 @@ export const UserProvider = ({ children }) => {
     }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    clearImageCache();
     setUser(null);
   };
 
