@@ -47,7 +47,7 @@ export default function OverviewPage() {
       <PageHeader title="Overview" subtitle={`Fleet rent collection for ${MONTHS[now.getMonth()]} ${now.getFullYear()} · only Accounts-verified payments count as collected`} />
       <MonthKpis data={data} />
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-        <section className="r-card p-4">
+        <section className="r-card min-w-0 p-4">
           <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold">Collection trend · last 14 days</h2></div>
           {data ? <TrendChart series={data.series} /> : <Skeleton className="h-[240px]" />}
         </section>

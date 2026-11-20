@@ -10,6 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { api, downloadBlob, errMsg } from "@/lib/api";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+const PREVIEW_PAGE_SIZE = 50;
+const CHUNK_SIZE = 100;
 
 const blankRow = (city = "Bengaluru", rent = 700) => ({
   name: "",
@@ -43,6 +45,8 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   const [ocrUsed, setOcrUsed] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [previewPage, setPreviewPage] = useState(1);
   const [downloadingTpl, setDownloadingTpl] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -53,6 +57,8 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       setRows([]);
       setRawPreview("");
       setOcrUsed(false);
+      setProgress(null);
+      setPreviewPage(1);
       setResult(null);
     }
   }, [open, defaultMode]);
@@ -62,12 +68,14 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
     if (!file) return;
     setParsing(true);
     setResult(null);
+    setProgress(null);
     setFilename(file.name);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const { data } = await api.post("/import/parse", fd);
+      const { data } = await api.post("/import/parse", fd, { timeout: 120000 });
       setRows(data.rows || []);
+      setPreviewPage(1);
       setRawPreview(data.raw_text_preview || "");
       setOcrUsed(!!data.ocr_used);
       if (data.detected_mode && data.rows?.length > 0) {
@@ -150,45 +158,69 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       return;
     }
     setCommitting(true);
+    setProgress({ done: 0, total: valid.length });
+    const summary = {
+      drivers_created: 0,
+      drivers_updated: 0,
+      vehicles_created: 0,
+      vehicles_updated: 0,
+      assignments_created: 0,
+      errors: [],
+    };
     try {
-      const payload = {
-        mode,
-        update_existing: updateExisting,
-        rows: valid.map((r) => ({
-          ...r,
-          city: (r.city || defaultCity || "Bengaluru").trim(),
-          daily_rent: Number(r.daily_rent) || Number(defaultRent) || 700,
-          joining_date: r.joining_date || "",
-          has_daily_rent: r.has_daily_rent,
-          has_joining_date: r.has_joining_date,
-        })),
-      };
-      const { data } = await api.post("/import/commit", payload);
-      setResult(data);
+      for (let i = 0; i < valid.length; i += CHUNK_SIZE) {
+        const chunk = valid.slice(i, i + CHUNK_SIZE);
+        const payload = {
+          mode,
+          update_existing: updateExisting,
+          rows: chunk.map((r) => ({
+            ...r,
+            city: (r.city || defaultCity || "Bengaluru").trim(),
+            daily_rent: Number(r.daily_rent) || Number(defaultRent) || 700,
+            joining_date: r.joining_date || "",
+            has_daily_rent: r.has_daily_rent,
+            has_joining_date: r.has_joining_date,
+          })),
+        };
+        const { data } = await api.post("/import/commit", payload, { timeout: 120000 });
+        summary.drivers_created += data.drivers_created || 0;
+        summary.drivers_updated += data.drivers_updated || 0;
+        summary.vehicles_created += data.vehicles_created || 0;
+        summary.vehicles_updated += data.vehicles_updated || 0;
+        summary.assignments_created += data.assignments_created || 0;
+        if (data.errors?.length) summary.errors.push(...data.errors);
+        setProgress({ done: Math.min(i + CHUNK_SIZE, valid.length), total: valid.length });
+      }
+      setResult(summary);
       const parts = [];
-      if (data.drivers_created || data.drivers_updated) {
-        parts.push(`${data.drivers_created} driver(s) created, ${data.drivers_updated} updated`);
+      if (summary.drivers_created || summary.drivers_updated) {
+        parts.push(`${summary.drivers_created} driver(s) created, ${summary.drivers_updated} updated`);
       }
-      if (data.vehicles_created || data.vehicles_updated) {
-        parts.push(`${data.vehicles_created} vehicle(s) created, ${data.vehicles_updated} updated`);
+      if (summary.vehicles_created || summary.vehicles_updated) {
+        parts.push(`${summary.vehicles_created} vehicle(s) created, ${summary.vehicles_updated} updated`);
       }
-      if (data.assignments_created) {
-        parts.push(`${data.assignments_created} assigned`);
+      if (summary.assignments_created) {
+        parts.push(`${summary.assignments_created} assigned`);
       }
       toast.success(parts.length ? `Import complete: ${parts.join(" · ")}` : "Import completed");
       onImported?.();
-      if (!data.errors?.length) {
+      if (!summary.errors?.length) {
         onOpenChange(false);
       }
     } catch (err) {
       toast.error(errMsg(err));
     } finally {
       setCommitting(false);
+      setProgress(null);
     }
   };
 
   const missingMobileCount = rows.filter((r) => mode !== "vehicles" && r.name?.trim() && !/^\d{10}$/.test(r.mobile || "")).length;
   const missingRegCount = rows.filter((r) => mode !== "drivers" && !r.reg_no?.trim()).length;
+  const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
+  const safePage = Math.min(previewPage, totalPages);
+  const startIdx = (safePage - 1) * PREVIEW_PAGE_SIZE;
+  const visibleRows = rows.slice(startIdx, startIdx + PREVIEW_PAGE_SIZE);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -352,7 +384,8 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
+                {visibleRows.map((r, localIdx) => {
+                  const i = startIdx + localIdx;
                   const statusVal = r.rental_status && r.status === "Active" ? r.rental_status : r.status || "Active";
                   return (
                     <tr key={i} data-testid={`import-row-${i}`}>
@@ -506,17 +539,48 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-          <div className="text-xs text-[#64748B]">
-            Ready to import <strong>{rows.length}</strong> row(s) in{" "}
-            <strong>{mode === "drivers_and_vehicles" ? "Drivers & Vehicles" : mode === "drivers" ? "Drivers Only" : "Vehicles Only"}</strong> mode
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[#64748B]">
+            <span>
+              Ready to import <strong>{rows.length}</strong> row(s) in{" "}
+              <strong>{mode === "drivers_and_vehicles" ? "Drivers & Vehicles" : mode === "drivers" ? "Drivers Only" : "Vehicles Only"}</strong> mode
+            </span>
+            {rows.length > PREVIEW_PAGE_SIZE && (
+              <div className="inline-flex items-center gap-1.5" data-testid="import-preview-pager">
+                <span>
+                  Showing {startIdx + 1}–{Math.min(startIdx + PREVIEW_PAGE_SIZE, rows.length)} of {rows.length}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={safePage <= 1}
+                  onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                >
+                  Prev
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPreviewPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" disabled={committing} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="button" disabled={committing || !rows.length} onClick={commit} data-testid="import-commit-button">
               {committing && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Import {rows.length ? `${rows.length} Record(s)` : "Records"}
+              {committing && progress
+                ? `Importing ${progress.done} / ${progress.total}...`
+                : `Import ${rows.length ? `${rows.length} Record(s)` : "Records"}`}
             </Button>
           </div>
         </div>

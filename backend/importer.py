@@ -370,8 +370,26 @@ def _is_unassigned_driver(val: Any) -> bool:
     )
 
 
-def clean_reg_no(val: Any) -> str:
+def _is_unassigned_vehicle(val: Any) -> bool:
     if _is_blank(val):
+        return True
+    return re.sub(r"\s+", " ", str(val or "").strip().lower()) in (
+        "unassigned",
+        "not assigned",
+        "no vehicle",
+        "none assigned",
+        "not allotted",
+        "no reg",
+        "nil",
+        "tbd",
+        "pending",
+        "n.a",
+        "n.a.",
+    )
+
+
+def clean_reg_no(val: Any) -> str:
+    if _is_unassigned_vehicle(val):
         return ""
     s = re.sub(r"\s+", " ", str(val or "").strip())
     if "-" in s:
@@ -504,7 +522,7 @@ def _row_from_mapping(
     item["handover_date"] = clean_date(raw.get("handover_date"), joining) if not _is_blank(raw.get("handover_date")) else ""
     item["rent_start_date"] = clean_date(raw.get("rent_start_date"), joining) if not _is_blank(raw.get("rent_start_date")) else ""
     code_raw = re.sub(r"\s*-\s*", "-", str(raw.get("driver_code") or "").strip().upper())
-    item["driver_code"] = code_raw if re.match(r"^[A-Z0-9]{2,10}-[A-Z0-9-]{2,15}$", code_raw) else ""
+    item["driver_code"] = code_raw if re.match(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$", code_raw) else ""
     item["package"] = "" if _is_blank(raw.get("package")) else re.sub(r"\s+", " ", str(raw.get("package")).strip())
     item["reg_no"] = reg_no
     item["vehicle_type"] = "" if _is_blank(raw.get("vehicle_type")) else str(raw.get("vehicle_type")).strip()
@@ -517,7 +535,7 @@ def _row_from_mapping(
         item["status"] = "Active"
     else:
         item["status"] = clean_status(raw_st, kind="driver" if name else "vehicle")
-        item["rental_status"] = "rented" if name else "available"
+        item["rental_status"] = "rented" if (name and reg_no) else ("available" if reg_no else "")
     details_parts = []
     base_details = "" if _is_blank(raw.get("details")) else str(raw.get("details")).strip()
     if base_details:

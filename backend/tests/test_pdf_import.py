@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import time
 import uuid
 import pytest
 import requests
@@ -712,3 +713,83 @@ class TestPdfExcelCsvImport:
         v_after = next(x for x in board_after["rows"] if x["id"] == varshini["id"])
         assert v_after["status"] == "verified"
         assert v_after["outstanding"] == 0
+
+    def test_bulk_import_350_rows_fast_and_unassigned_vehicle_ignored(self):
+        hdrs = admin_headers()
+        bulk_tag = f"BULK{SUFFIX}"
+        cities = ["Coimbatore", "Bengaluru", "Tiruppur", "Chennai"]
+        packages = ["Economy Package", "Commission Package", "Salary Package", "Silver Package"]
+        lines = ["Driver,ID,Phone,Vehicle,Package,City,Joining Date,VIN,Daily Rent,Status"]
+        for i in range(350):
+            city = cities[i % len(cities)]
+            pkg = packages[i % len(packages)]
+            code = f"R39D-{bulk_tag}{i:03d}"
+            mob = f"91{i:08d}"
+            if i < 340:
+                veh = f"B{i:03d} - TN66Z{1000 + i}"
+                vin = f"MBX0007{bulk_tag}{i:04d}"
+            else:
+                veh = "UNASSIGNED" if i % 2 == 0 else "Not Assigned"
+                vin = ""
+            lines.append(
+                f"TEST_{bulk_tag}_{i},{code},{mob},{veh},{pkg},{city},10/11/2026,{vin},750,Active"
+            )
+        csv_bytes = "\n".join(lines).encode("utf-8")
+
+        try:
+            pr = requests.post(
+                f"{API}/import/parse",
+                headers=hdrs,
+                files={"file": ("drivers-all-cities.csv", io.BytesIO(csv_bytes), "text/csv")},
+            )
+            assert pr.status_code == 200, pr.text
+            parsed = pr.json()
+            assert parsed["total_rows"] == 350
+            assert all(r["reg_no"] == "" for r in parsed["rows"][340:])
+
+            t0 = time.monotonic()
+            cr = requests.post(
+                f"{API}/import/commit",
+                headers=hdrs,
+                json={"mode": "drivers_and_vehicles", "update_existing": True, "rows": parsed["rows"]},
+            )
+            elapsed1 = time.monotonic() - t0
+            assert cr.status_code == 200, cr.text
+            res1 = cr.json()
+            assert res1["drivers_created"] == 350
+            assert res1["vehicles_created"] == 340
+            assert res1["assignments_created"] == 340
+            assert res1["errors"] == []
+            assert elapsed1 < 15.0, f"Initial 350-row bulk commit took {elapsed1:.2f}s"
+
+            # Verify zero fake UNASSIGNED vehicles exist
+            bad_vehs = requests.get(f"{API}/vehicles", headers=hdrs, params={"q": "UNASSIGNED"}).json()
+            assert not any("UNASSIGN" in (v.get("reg_no") or "").upper() for v in bad_vehs)
+
+            # Re-import same 350 rows to verify bulk updates work fast without duplicate key errors
+            t1 = time.monotonic()
+            cr2 = requests.post(
+                f"{API}/import/commit",
+                headers=hdrs,
+                json={"mode": "drivers_and_vehicles", "update_existing": True, "rows": parsed["rows"]},
+            )
+            elapsed2 = time.monotonic() - t1
+            assert cr2.status_code == 200, cr2.text
+            res2 = cr2.json()
+            assert res2["drivers_updated"] == 350
+            assert res2["vehicles_updated"] == 340
+            assert res2["errors"] == []
+            assert elapsed2 < 15.0, f"Update 350-row bulk commit took {elapsed2:.2f}s"
+        finally:
+            m = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+            drvs = list(m.drivers.find({"driver_code": {"$regex": f"^R39D-{bulk_tag}"}}, {"_id": 0, "id": 1, "current_vehicle_id": 1}))
+            dids = [d["id"] for d in drvs]
+            vehs = list(m.vehicles.find({"vin": {"$regex": f"^MBX0007{bulk_tag}"}}, {"_id": 0, "vehicle_id": 1}))
+            vids = [v["vehicle_id"] for v in vehs]
+            if dids:
+                m.vehicle_assignments.delete_many({"driver_id": {"$in": dids}})
+                m.drivers.delete_many({"id": {"$in": dids}})
+                m.audit_logs.delete_many({"entity_id": {"$in": dids}})
+            if vids:
+                m.vehicles.delete_many({"vehicle_id": {"$in": vids}})
+                m.audit_logs.delete_many({"entity_id": {"$in": vids}})

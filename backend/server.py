@@ -17,7 +17,7 @@ load_dotenv(ROOT_DIR / '.env')
 from fastapi import FastAPI, APIRouter, Query, Header, HTTPException, UploadFile, File, Depends, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING, IndexModel, ReturnDocument
+from pymongo import ASCENDING, DESCENDING, IndexModel, ReturnDocument, UpdateOne
 from pydantic import BaseModel, Field
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -471,7 +471,7 @@ async def list_drivers(q: str = "", city: str = "", status: str = "", format: st
         f["city"] = city
     if status and status != "all":
         f["status"] = status
-    drivers = await db.drivers.find(f, P).sort("name", 1).to_list(2000)
+    drivers = await db.drivers.find(f, P).sort("name", 1).to_list(20000)
     if format == "xlsx":
         rows = [
             [
@@ -515,12 +515,12 @@ async def get_driver(did: str, user=Depends(current_user)):
     return await enrich_driver(drv)
 
 
-DRIVER_CODE_RX = re.compile(r"^[A-Z0-9]{2,10}-[A-Z0-9-]{2,15}$")
+DRIVER_CODE_RX = re.compile(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$")
 
 
 @api.post("/drivers")
 async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
-    last = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(5000)
+    last = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(20000)
     nums = [int(d["id"].split("-")[-1]) for d in last if d["id"].split("-")[-1].isdigit()]
     data = body.model_dump(exclude={"driver_code", "current_vehicle_id"})
     data["handover_date"] = data["handover_date"] or data["joining_date"]
@@ -674,11 +674,11 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
         f["city"] = city
     if status and status not in ("all", "available", "rented"):
         f["status"] = status
-    vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(2000)
+    vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(20000)
     drivers = await db.drivers.find(
         {"current_vehicle_id": {"$ne": None}},
         {"_id": 0, "id": 1, "name": 1, "driver_code": 1, "mobile": 1, "daily_rent": 1, "current_vehicle_id": 1},
-    ).to_list(5000)
+    ).to_list(20000)
     by_vid = {d["current_vehicle_id"]: d for d in drivers}
     for v in vehicles:
         v["current_driver"] = by_vid.get(v["vehicle_id"])
@@ -808,9 +808,63 @@ async def import_parse(file: UploadFile = File(...), user=Depends(require("admin
 @api.post("/import/commit")
 async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
     today_str = today_ist().isoformat()
-    last_drivers = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(10000)
-    nums = [int(d["id"].split("-")[-1]) for d in last_drivers if d["id"].split("-")[-1].isdigit()]
+    ts = now_iso()
+
+    all_vehicles = await db.vehicles.find({}, P).to_list(50000)
+    veh_by_rk = {v["reg_key"]: v for v in all_vehicles if v.get("reg_key")}
+    veh_by_id = {v["vehicle_id"]: v for v in all_vehicles if v.get("vehicle_id")}
+
+    all_drivers = await db.drivers.find({}, P).to_list(50000)
+    drv_by_id = {d["id"]: d for d in all_drivers if d.get("id")}
+    drv_by_code = {d["driver_code"]: d for d in all_drivers if d.get("driver_code")}
+    drv_by_name_mob = {}
+    drv_by_name_exact = {}
+    holder_by_vid = {}
+    nums = []
+    for d in all_drivers:
+        if not d.get("id"):
+            continue
+        if d["id"].split("-")[-1].isdigit():
+            nums.append(int(d["id"].split("-")[-1]))
+        nm = (d.get("name") or "").strip().lower()
+        mob = d.get("mobile") or ""
+        if nm:
+            drv_by_name_mob.setdefault((nm, mob), d)
+            drv_by_name_exact.setdefault(nm, d)
+        if d.get("current_vehicle_id"):
+            holder_by_vid[d["current_vehicle_id"]] = d
     next_drv_num = (max(nums) if nums else 1000) + 1
+
+    all_counters = await db.counters.find({"id": {"$exists": True}}, P).to_list(5000)
+    counter_seq = {c["id"]: int(c.get("seq", 0)) for c in all_counters if c.get("id")}
+    dirty_counters = set()
+
+    def alloc_code(kind: str, prefix: str) -> str:
+        key = f"{kind}:{prefix}"
+        seq = counter_seq.get(key, 0)
+        while True:
+            seq += 1
+            if kind == "driver":
+                code = f"{prefix}-D-{seq:03d}"
+                if code not in drv_by_code:
+                    counter_seq[key] = seq
+                    dirty_counters.add(key)
+                    return code
+            else:
+                code = f"{prefix}-{seq:03d}"
+                if code not in veh_by_id:
+                    counter_seq[key] = seq
+                    dirty_counters.add(key)
+                    return code
+
+    new_vehicles_by_id = {}
+    veh_patch_by_id = {}
+    new_drivers_by_id = {}
+    drv_patch_by_id = {}
+    unassign_driver_ids = set()
+    close_assign_driver_ids = set()
+    new_assignments = []
+    last_batch_assign_by_drv = {}
 
     drivers_created = 0
     drivers_updated = 0
@@ -837,26 +891,33 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
 
             if body.mode in ("vehicles", "drivers_and_vehicles") and reg_clean:
                 rk = reg_key(reg_clean)
-                veh_doc = await db.vehicles.find_one({"reg_key": rk}, P)
+                veh_doc = veh_by_rk.get(rk)
                 veh_status = importer.clean_status(row.status, kind="vehicle")
                 veh_rent = max(float(row.daily_rent or 0), 0.0)
                 if not veh_doc:
-                    veh_doc = await insert_vehicle(
-                        reg_clean,
-                        city,
-                        row.vehicle_type.strip(),
-                        veh_status,
-                        row.details.strip(),
-                        vin=vin_clean,
-                        rental_ends=rental_ends_clean,
-                        rental_status=rental_status_clean,
-                    )
+                    vid = alloc_code("vehicle", city_prefix(city))
+                    stored_reg = reg_clean.strip() if " - " in reg_clean else reg_clean.strip().upper()
+                    veh_doc = {
+                        "vehicle_id": vid,
+                        "reg_no": stored_reg,
+                        "reg_key": rk,
+                        "city": city.strip(),
+                        "vehicle_type": row.vehicle_type.strip(),
+                        "vin": vin_clean,
+                        "rental_ends": rental_ends_clean,
+                        "rental_status": rental_status_clean or "available",
+                        "status": veh_status,
+                        "details": row.details.strip(),
+                        "created_at": ts,
+                    }
                     if veh_rent > 0:
-                        await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": {"daily_rent": veh_rent}})
                         veh_doc["daily_rent"] = veh_rent
+                    veh_by_rk[rk] = veh_doc
+                    veh_by_id[vid] = veh_doc
+                    new_vehicles_by_id[vid] = veh_doc
                     vehicles_created += 1
-                    await audit(user, "Vehicle imported", "vehicle", veh_doc["vehicle_id"], None, f"{veh_doc['reg_no']} · {city}")
                 elif body.update_existing:
+                    vid = veh_doc["vehicle_id"]
                     upd_v = {"city": city, "rental_status": rental_status_clean}
                     if row.vehicle_type.strip():
                         upd_v["vehicle_type"] = row.vehicle_type.strip()
@@ -868,12 +929,21 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         upd_v["rental_ends"] = rental_ends_clean
                     if row.has_daily_rent is not False and veh_rent > 0:
                         upd_v["daily_rent"] = veh_rent
-                    await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": upd_v})
+                    veh_doc.update(upd_v)
+                    if vid not in new_vehicles_by_id:
+                        veh_patch_by_id.setdefault(vid, {}).update(upd_v)
                     if raw_name == "" and rental_status_clean == "available":
-                        holder = await db.drivers.find_one({"current_vehicle_id": veh_doc["vehicle_id"]}, P)
+                        holder = holder_by_vid.pop(vid, None)
                         if holder:
-                            await assign_vehicle(holder, None, user, "Marked available by import")
-                    veh_doc = await db.vehicles.find_one({"vehicle_id": veh_doc["vehicle_id"]}, P)
+                            hid = holder["id"]
+                            holder["current_vehicle_id"] = None
+                            holder["vehicle_no"] = ""
+                            if hid not in new_drivers_by_id:
+                                unassign_driver_ids.add(hid)
+                                close_assign_driver_ids.add(hid)
+                                drv_patch_by_id.setdefault(hid, {}).update({"current_vehicle_id": None, "vehicle_no": ""})
+                            if hid in last_batch_assign_by_drv:
+                                last_batch_assign_by_drv.pop(hid)["end_at"] = ts
                     vehicles_updated += 1
 
             if raw_name and body.mode in ("drivers", "drivers_and_vehicles", "vehicles"):
@@ -898,27 +968,22 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 code_in = re.sub(r"\s*-\s*", "-", (row.driver_code or "").strip().upper())
                 drv_doc = None
                 if code_in and DRIVER_CODE_RX.match(code_in):
-                    drv_doc = await db.drivers.find_one({"driver_code": code_in}, P)
+                    drv_doc = drv_by_code.get(code_in)
                 if not drv_doc and has_mobile:
-                    drv_doc = await db.drivers.find_one(
-                        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "mobile": mobile}, P
-                    )
+                    drv_doc = drv_by_name_mob.get((name.lower(), mobile))
                 if not drv_doc and not has_mobile:
-                    drv_doc = await db.drivers.find_one(
-                        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}, P
-                    )
+                    drv_doc = drv_by_name_exact.get(name.lower())
                     if not drv_doc:
-                        prefix_matches = await db.drivers.find(
-                            {"name": {"$regex": f"^{re.escape(name)}(\\s|$)", "$options": "i"}}, P
-                        ).to_list(2)
+                        rx_pref = re.compile(rf"^{re.escape(name)}(\s|$)", re.IGNORECASE)
+                        prefix_matches = [d for d in drv_by_id.values() if rx_pref.match(d.get("name") or "")]
                         if len(prefix_matches) == 1:
                             drv_doc = prefix_matches[0]
 
                 if not drv_doc:
-                    if code_in and DRIVER_CODE_RX.match(code_in) and not await db.drivers.find_one({"driver_code": code_in}):
+                    if code_in and DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
                         code = code_in
                     else:
-                        code = await next_code("driver", city_prefix(city))
+                        code = alloc_code("driver", city_prefix(city))
                     drv_id = f"R39-DRV-{next_drv_num}"
                     next_drv_num += 1
                     drv_doc = {
@@ -937,17 +1002,17 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         "vehicle_no": "",
                         "current_vehicle_id": None,
                         "adjustments": [],
-                        "created_at": now_iso(),
+                        "created_at": ts,
                     }
-                    await db.drivers.insert_one(drv_doc)
-                    drv_doc.pop("_id", None)
+                    drv_by_id[drv_id] = drv_doc
+                    drv_by_code[code] = drv_doc
+                    drv_by_name_mob.setdefault((name.lower(), mobile), drv_doc)
+                    drv_by_name_exact.setdefault(name.lower(), drv_doc)
+                    new_drivers_by_id[drv_id] = drv_doc
                     drivers_created += 1
-                    await audit(user, "Driver imported", "driver", drv_id, None, f"{code} · {name} · {inr(daily_rent)}/day", drv_id)
                 elif body.update_existing:
-                    upd_d = {
-                        "city": city,
-                        "status": drv_status,
-                    }
+                    did = drv_doc["id"]
+                    upd_d = {"city": city, "status": drv_status}
                     if row.has_daily_rent is not False:
                         upd_d["daily_rent"] = daily_rent
                     if row.has_joining_date is not False and (row.joining_date or "").strip():
@@ -958,23 +1023,91 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         upd_d["package"] = pkg_clean
                     if has_mobile:
                         upd_d["mobile"] = mobile
-                    await db.drivers.update_one({"id": drv_doc["id"]}, {"$set": upd_d})
-                    drv_doc = await db.drivers.find_one({"id": drv_doc["id"]}, P)
+                        drv_by_name_mob[(drv_doc.get("name", "").strip().lower(), mobile)] = drv_doc
+                    drv_doc.update(upd_d)
+                    if did not in new_drivers_by_id:
+                        drv_patch_by_id.setdefault(did, {}).update(upd_d)
                     drivers_updated += 1
 
                 if veh_doc and veh_doc.get("status") != "Inactive":
-                    if drv_doc.get("current_vehicle_id") != veh_doc["vehicle_id"]:
-                        other = await db.drivers.find_one(
-                            {"current_vehicle_id": veh_doc["vehicle_id"], "id": {"$ne": drv_doc["id"]}}, P
-                        )
-                        if not other:
-                            await assign_vehicle(drv_doc, veh_doc["vehicle_id"], user, "Imported from file")
-                            await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": {"rental_status": "rented"}})
+                    vid = veh_doc["vehicle_id"]
+                    if drv_doc.get("current_vehicle_id") != vid:
+                        other = holder_by_vid.get(vid)
+                        if not other or other["id"] == drv_doc["id"]:
+                            did = drv_doc["id"]
+                            prev_vid = drv_doc.get("current_vehicle_id")
+                            if prev_vid:
+                                if (holder_by_vid.get(prev_vid) or {}).get("id") == did:
+                                    holder_by_vid.pop(prev_vid, None)
+                                if did not in new_drivers_by_id:
+                                    close_assign_driver_ids.add(did)
+                                    unassign_driver_ids.add(did)
+                            if did in last_batch_assign_by_drv:
+                                last_batch_assign_by_drv[did]["end_at"] = ts
+
+                            drv_doc["current_vehicle_id"] = vid
+                            drv_doc["vehicle_no"] = veh_doc["reg_no"]
+                            holder_by_vid[vid] = drv_doc
+                            if did not in new_drivers_by_id:
+                                drv_patch_by_id.setdefault(did, {}).update(
+                                    {"current_vehicle_id": vid, "vehicle_no": veh_doc["reg_no"]}
+                                )
+                            veh_doc["rental_status"] = "rented"
+                            if vid not in new_vehicles_by_id:
+                                veh_patch_by_id.setdefault(vid, {})["rental_status"] = "rented"
+
+                            asgn = {
+                                "id": str(uuid.uuid4()),
+                                "driver_id": did,
+                                "vehicle_id": vid,
+                                "reg_no": veh_doc["reg_no"],
+                                "prev_vehicle_id": prev_vid,
+                                "start_at": ts,
+                                "end_at": None,
+                                "changed_by": user["id"],
+                                "changed_by_name": user["name"],
+                                "reason": "Imported from file",
+                            }
+                            new_assignments.append(asgn)
+                            last_batch_assign_by_drv[did] = asgn
                             assignments_created += 1
         except HTTPException as exc:
             errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc.detail}")
         except Exception as exc:
             errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc}")
+
+    if dirty_counters:
+        await db.counters.bulk_write(
+            [UpdateOne({"id": k}, {"$set": {"seq": counter_seq[k]}}, upsert=True) for k in dirty_counters],
+            ordered=False,
+        )
+    if new_vehicles_by_id:
+        await db.vehicles.insert_many(list(new_vehicles_by_id.values()), ordered=False)
+    if veh_patch_by_id:
+        await db.vehicles.bulk_write(
+            [UpdateOne({"vehicle_id": vid}, {"$set": p}) for vid, p in veh_patch_by_id.items()],
+            ordered=False,
+        )
+    unassign_existing = [did for did in unassign_driver_ids if did not in new_drivers_by_id]
+    if unassign_existing:
+        await db.drivers.bulk_write(
+            [UpdateOne({"id": did}, {"$set": {"current_vehicle_id": None, "vehicle_no": ""}}) for did in unassign_existing],
+            ordered=False,
+        )
+    if new_drivers_by_id:
+        await db.drivers.insert_many(list(new_drivers_by_id.values()), ordered=False)
+    if drv_patch_by_id:
+        await db.drivers.bulk_write(
+            [UpdateOne({"id": did}, {"$set": p}) for did, p in drv_patch_by_id.items()],
+            ordered=False,
+        )
+    if close_assign_driver_ids:
+        await db.vehicle_assignments.update_many(
+            {"driver_id": {"$in": list(close_assign_driver_ids)}, "end_at": None},
+            {"$set": {"end_at": ts, "ended_by_name": user["name"]}},
+        )
+    if new_assignments:
+        await db.vehicle_assignments.insert_many(new_assignments, ordered=False)
 
     await audit(
         user,

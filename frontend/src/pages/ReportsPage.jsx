@@ -113,7 +113,7 @@ const Analytics = () => {
   return (
     <div className="space-y-4">
       <MonthKpis data={data} />
-      <section className="r-card p-4"><h2 className="mb-3 text-sm font-bold">Daily collection · last 14 days</h2>{data && <TrendChart series={data.series} height={220} />}</section>
+      <section className="r-card min-w-0 p-4"><h2 className="mb-3 text-sm font-bold">Daily collection · last 14 days</h2>{data && <TrendChart series={data.series} height={220} />}</section>
     </div>
   );
 };
