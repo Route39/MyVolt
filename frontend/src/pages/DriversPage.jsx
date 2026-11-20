@@ -81,7 +81,7 @@ export default function DriversPage() {
             </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-drivers-button">
               <FileUp className="mr-1.5 h-4 w-4" />
-              Import Excel / PDF
+              Import Excel / PDF / Image
             </Button>
             <Button onClick={() => setEdit(null)} data-testid="add-driver-button">
               <Plus className="mr-1.5 h-4 w-4" />

@@ -39,8 +39,8 @@ export const UserProvider = ({ children }) => {
     return () => window.removeEventListener("r39:unauthorized", onUnauthorized);
   }, []);
 
-  const login = async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password });
+  const login = async (mobile, password) => {
+    const { data } = await api.post("/auth/login", { mobile, password });
     localStorage.setItem(TOKEN_KEY, data.token);
     localStorage.setItem(USER_KEY, data.user.id);
     setUser(data.user);

@@ -64,6 +64,40 @@ export default function OverviewPage() {
           )}
         </div>
       </div>
+      {data?.by_city?.length > 0 && (
+        <section className="r-card overflow-hidden" data-testid="overview-by-city">
+          <div className="border-b px-4 py-3">
+            <h2 className="text-sm font-bold">Fleet by City</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="data-table w-full">
+              <thead>
+                <tr>
+                  <th>City</th>
+                  <th className="num">Active Drivers</th>
+                  <th className="num">Vehicles (Rented / Available)</th>
+                  <th className="num">Expected MTD</th>
+                  <th className="num">Verified MTD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.by_city.map((c) => (
+                  <tr key={c.city} data-testid={`ov-city-${c.city}`}>
+                    <td className="font-medium">{c.city}</td>
+                    <td className="num fig">{c.active_drivers}</td>
+                    <td className="num fig">
+                      {c.vehicles_rented} / {c.vehicles_available}
+                      <span className="ml-1 text-xs text-[#64748B]">({c.vehicles_total} total)</span>
+                    </td>
+                    <td className="num fig">{inr(c.expected)}</td>
+                    <td className="num fig font-semibold text-[#15803D]">{inr(c.verified)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

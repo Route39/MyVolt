@@ -26,7 +26,7 @@ import jwt
 
 import storage
 import importer
-from seed import seed
+from seed import seed, USERS as SEED_USERS
 
 client = AsyncIOMotorClient(os.environ.get('MONGO_URL', 'mongodb://localhost:27017'))
 db = client[os.environ.get('DB_NAME', 'myvolt_db')]
@@ -35,7 +35,11 @@ IST = timezone(timedelta(hours=5, minutes=30))
 logger = logging.getLogger(__name__)
 
 INDEXES: dict[str, list[IndexModel]] = {
-    "users": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
+    "users": [
+        IndexModel([("id", ASCENDING)], name="id", unique=True),
+        IndexModel([("mobile", ASCENDING)], name="mobile", unique=True,
+                   partialFilterExpression={"mobile": {"$type": "string"}}),
+    ],
     "drivers": [IndexModel([("id", ASCENDING)], name="id", unique=True),
                 IndexModel([("driver_code", ASCENDING)], name="driver_code", unique=True,
                            partialFilterExpression={"driver_code": {"$type": "string"}}),
@@ -92,7 +96,8 @@ def create_token(user: dict) -> str:
     return jwt.encode(
         {
             "sub": user["id"],
-            "email": user["email"],
+            "mobile": user.get("mobile", ""),
+            "email": user.get("email", ""),
             "role": user["role"],
             "exp": datetime.now(timezone.utc) + timedelta(days=7),
         },
@@ -159,18 +164,21 @@ async def get_settings():
 
 # ---------- models ----------
 class LoginIn(BaseModel):
-    email: str
+    mobile: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
     password: str
 
 
 class ChangePasswordIn(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=4)
 
 
 class UserIn(BaseModel):
     name: str = Field(min_length=2)
-    email: str
+    mobile: str
+    email: str = ""
     role: Literal["staff", "accounts", "admin"]
     active: bool = True
     password: Optional[str] = None
@@ -265,6 +273,8 @@ class ImportRowIn(BaseModel):
     rental_status: str = ""
     status: str = "Active"
     details: str = ""
+    has_daily_rent: Optional[bool] = None
+    has_joining_date: Optional[bool] = None
 
 
 class ImportCommitIn(BaseModel):
@@ -279,27 +289,42 @@ async def root():
     return {"message": "Route39 MyVolt Fleet API", "app": "MyVolt", "version": "1.0.0"}
 
 
+def clean_user_mobile(raw: str) -> str:
+    digits = importer.clean_mobile(raw)
+    if len(digits) != 10:
+        raise HTTPException(400, "Enter a valid 10-digit mobile number")
+    return digits
+
+
 @api.post("/auth/login")
 async def login(body: LoginIn):
-    email = body.email.strip().lower()
-    u = await db.users.find_one({"email": email}, P)
+    raw_mobile = (body.mobile or body.phone or "").strip()
+    if raw_mobile:
+        mob = importer.clean_mobile(raw_mobile)
+        if len(mob) != 10:
+            raise HTTPException(401, "Invalid mobile number or password")
+        u = await db.users.find_one({"mobile": mob}, P)
+    elif (body.email or "").strip():
+        u = await db.users.find_one({"email": body.email.strip().lower()}, P)
+    else:
+        raise HTTPException(400, "Enter your mobile number and password")
     if not u:
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Invalid mobile number or password")
     if not u.get("active", True):
         raise HTTPException(403, "This account is inactive. Contact an administrator.")
     if not u.get("password_hash"):
         u["password_hash"] = hash_password(DEFAULT_PASSWORD)
         await db.users.update_one({"id": u["id"]}, {"$set": {"password_hash": u["password_hash"]}})
     if not verify_password(body.password, u["password_hash"]):
-        raise HTTPException(401, "Invalid email or password")
-    await audit(u, "User signed in", "user", u["id"], None, u["email"])
+        raise HTTPException(401, "Invalid mobile number or password")
+    await audit(u, "User signed in", "user", u["id"], None, u.get("mobile") or u.get("email") or u["id"])
     clean_user = {k: v for k, v in u.items() if k != "password_hash"}
     return {"token": create_token(u), "user": clean_user}
 
 
 @api.post("/auth/logout")
 async def logout(user=Depends(current_user)):
-    await audit(user, "User signed out", "user", user["id"], None, user["email"])
+    await audit(user, "User signed out", "user", user["id"], None, user.get("mobile") or user.get("email") or user["id"])
     return {"ok": True}
 
 
@@ -316,7 +341,7 @@ async def change_password(body: ChangePasswordIn, user=Depends(current_user)):
 
 @api.get("/users/switcher")
 async def users_switcher():
-    return await db.users.find({"active": True}, {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}).sort("role", 1).to_list(200)
+    return await db.users.find({"active": True}, {"_id": 0, "id": 1, "name": 1, "mobile": 1, "email": 1, "role": 1}).sort("role", 1).to_list(200)
 
 
 @api.get("/me")
@@ -336,22 +361,26 @@ async def list_staff(user=Depends(current_user)):
 
 @api.post("/users")
 async def create_user(body: UserIn, user=Depends(require("admin"))):
-    email = body.email.strip().lower()
-    if await db.users.find_one({"email": email}):
+    mobile = clean_user_mobile(body.mobile)
+    if await db.users.find_one({"mobile": mobile}):
+        raise HTTPException(409, "A user with this mobile number already exists")
+    email = (body.email or "").strip().lower()
+    if email and await db.users.find_one({"email": email}):
         raise HTTPException(409, "A user with this email already exists")
     raw_pw = (body.password or "").strip()
-    if raw_pw and len(raw_pw) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if raw_pw and len(raw_pw) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
     data = body.model_dump(exclude={"password"})
     doc = {
         "id": f"u-{uuid.uuid4().hex[:8]}",
         **data,
+        "mobile": mobile,
         "email": email,
         "password_hash": hash_password(raw_pw or DEFAULT_PASSWORD),
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
-    await audit(user, "User created", "user", doc["id"], None, f"{doc['name']} ({doc['role']})")
+    await audit(user, "User created", "user", doc["id"], None, f"{doc['name']} · {mobile} ({doc['role']})")
     doc.pop("_id", None)
     doc.pop("password_hash", None)
     return doc
@@ -364,18 +393,21 @@ async def update_user(uid: str, body: UserIn, user=Depends(require("admin"))):
         raise HTTPException(404, "User not found")
     if uid == user["id"] and (not body.active or body.role != "admin"):
         raise HTTPException(400, "You cannot deactivate or demote yourself")
-    email = body.email.strip().lower()
-    if email != old.get("email") and await db.users.find_one({"email": email, "id": {"$ne": uid}}):
+    mobile = clean_user_mobile(body.mobile)
+    if mobile != old.get("mobile") and await db.users.find_one({"mobile": mobile, "id": {"$ne": uid}}):
+        raise HTTPException(409, "A user with this mobile number already exists")
+    email = (body.email or "").strip().lower()
+    if email and email != old.get("email") and await db.users.find_one({"email": email, "id": {"$ne": uid}}):
         raise HTTPException(409, "A user with this email already exists")
     raw_pw = (body.password or "").strip()
-    if raw_pw and len(raw_pw) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
-    new = {**body.model_dump(exclude={"password"}), "email": email}
+    if raw_pw and len(raw_pw) < 4:
+        raise HTTPException(400, "Password must be at least 4 characters")
+    new = {**body.model_dump(exclude={"password"}), "mobile": mobile, "email": email}
     update_set = dict(new)
     if raw_pw:
         update_set["password_hash"] = hash_password(raw_pw)
     await db.users.update_one({"id": uid}, {"$set": update_set})
-    for k in ["name", "email", "role", "active"]:
+    for k in ["name", "mobile", "email", "role", "active"]:
         if old.get(k) != new[k]:
             await audit(user, "User information changed", "user", uid, f"{k}: {old.get(k)}", f"{k}: {new[k]}")
     if raw_pw:
@@ -498,7 +530,7 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
     code = (body.driver_code or "").strip().upper()
     if code:
         if not DRIVER_CODE_RX.match(code):
-            raise HTTPException(400, "Driver ID override must look like BLR-D-001")
+            raise HTTPException(400, "Driver ID override must look like BLR-D-001 or R39D-TUP001")
         if await db.drivers.find_one({"driver_code": code}):
             raise HTTPException(409, f"Driver ID {code} is already used")
     else:
@@ -617,15 +649,30 @@ async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("s
 
 
 @api.get("/vehicles")
-async def list_vehicles(q: str = "", city: str = "", status: str = "", format: str = "json", user=Depends(current_user)):
+async def list_vehicles(q: str = "", city: str = "", status: str = "", assignment: str = "", format: str = "json", user=Depends(current_user)):
     f = {}
     if q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
-        f = {"$or": [{"vehicle_id": rx}, {"reg_no": rx}, {"reg_key": {"$regex": re.escape(reg_key(q)) or ".", "$options": "i"}},
-                     {"city": rx}, {"vehicle_type": rx}, {"vin": rx}, {"details": rx}]}
+        matched_drvs = await db.drivers.find(
+            {"current_vehicle_id": {"$ne": None}, "$or": [{"name": rx}, {"driver_code": rx}, {"mobile": rx}]},
+            {"_id": 0, "current_vehicle_id": 1},
+        ).to_list(500)
+        matched_vids = [d["current_vehicle_id"] for d in matched_drvs if d.get("current_vehicle_id")]
+        ors = [
+            {"vehicle_id": rx},
+            {"reg_no": rx},
+            {"reg_key": {"$regex": re.escape(reg_key(q)) or ".", "$options": "i"}},
+            {"city": rx},
+            {"vehicle_type": rx},
+            {"vin": rx},
+            {"details": rx},
+        ]
+        if matched_vids:
+            ors.append({"vehicle_id": {"$in": matched_vids}})
+        f = {"$or": ors}
     if city and city != "all":
         f["city"] = city
-    if status and status != "all":
+    if status and status not in ("all", "available", "rented"):
         f["status"] = status
     vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(2000)
     drivers = await db.drivers.find(
@@ -637,6 +684,14 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", format: s
         v["current_driver"] = by_vid.get(v["vehicle_id"])
         v["daily_rent"] = (v["current_driver"] or {}).get("daily_rent") or v.get("daily_rent") or 0
         v["rental_status"] = "rented" if v.get("current_driver") else (v.get("rental_status") or "available")
+    if status == "available":
+        vehicles = [v for v in vehicles if v.get("status") == "Active" and not v.get("current_driver") and v.get("rental_status") == "available"]
+    elif status == "rented":
+        vehicles = [v for v in vehicles if v.get("status") == "Active" and (v.get("current_driver") or v.get("rental_status") == "rented")]
+    if assignment == "assigned":
+        vehicles = [v for v in vehicles if v.get("current_driver")]
+    elif assignment == "unassigned":
+        vehicles = [v for v in vehicles if not v.get("current_driver")]
     if format == "xlsx":
         rows = [
             [
@@ -734,14 +789,15 @@ async def import_template(user=Depends(require("admin"))):
 
 @api.post("/import/parse")
 async def import_parse(file: UploadFile = File(...), user=Depends(require("admin"))):
-    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
-    if ext not in ("pdf", "xlsx", "xlsm", "csv"):
-        raise HTTPException(400, "Only PDF, Excel (.xlsx), or CSV files are supported")
+    filename = file.filename or "upload.pdf"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ("pdf", "xlsx", "xlsm", "csv", "png", "jpg", "jpeg", "webp"):
+        raise HTTPException(400, "Only PDF, Excel (.xlsx), CSV, or image (PNG/JPG/WEBP) files are supported")
     data = await file.read()
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(400, "Import file must be under 20 MB")
     try:
-        return await asyncio.to_thread(importer.parse_import_file, file.filename or "upload.pdf", data, today_ist().isoformat())
+        return await asyncio.to_thread(importer.parse_import_file, filename, data, today_ist().isoformat())
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
@@ -810,9 +866,13 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         upd_v["vin"] = vin_clean
                     if rental_ends_clean or importer._is_blank(row.rental_ends):
                         upd_v["rental_ends"] = rental_ends_clean
-                    if veh_rent > 0:
+                    if row.has_daily_rent is not False and veh_rent > 0:
                         upd_v["daily_rent"] = veh_rent
                     await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": upd_v})
+                    if raw_name == "" and rental_status_clean == "available":
+                        holder = await db.drivers.find_one({"current_vehicle_id": veh_doc["vehicle_id"]}, P)
+                        if holder:
+                            await assign_vehicle(holder, None, user, "Marked available by import")
                     veh_doc = await db.vehicles.find_one({"vehicle_id": veh_doc["vehicle_id"]}, P)
                     vehicles_updated += 1
 
@@ -886,12 +946,14 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 elif body.update_existing:
                     upd_d = {
                         "city": city,
-                        "daily_rent": daily_rent,
-                        "joining_date": joining,
-                        "handover_date": handover,
-                        "rent_start_date": rent_start_dt,
                         "status": drv_status,
                     }
+                    if row.has_daily_rent is not False:
+                        upd_d["daily_rent"] = daily_rent
+                    if row.has_joining_date is not False and (row.joining_date or "").strip():
+                        upd_d["joining_date"] = joining
+                        upd_d["handover_date"] = handover
+                        upd_d["rent_start_date"] = rent_start_dt
                     if pkg_clean:
                         upd_d["package"] = pkg_clean
                     if has_mobile:
@@ -1429,7 +1491,7 @@ def day_row(drv, txns, d: date):
         st = "rejected" if txns else "unpaid"
     last = txns[-1] if txns else {}
     return {"id": drv["id"], "name": drv["name"], "driver_code": drv.get("driver_code"), "mobile": drv["mobile"],
-            "city": drv["city"], "current_vehicle_id": drv.get("current_vehicle_id"), "vehicle_no": drv.get("vehicle_no"),
+            "city": drv["city"], "package": drv.get("package") or "", "current_vehicle_id": drv.get("current_vehicle_id"), "vehicle_no": drv.get("vehicle_no"),
             "daily_rent": drv["daily_rent"], "driver_status": drv.get("status"), "eligible": eligible,
             "expected": expected, "submitted": sum(t["amount"] for t in act), "verified": verified,
             "outstanding": max(expected - verified, 0.0), "status": st, "staff": last.get("submitted_by_name"),
@@ -1441,7 +1503,7 @@ def driver_filter(q):
         return {}
     rx = {"$regex": re.escape(q.strip()), "$options": "i"}
     compact = re.sub(r"[^A-Za-z0-9]", "", q)
-    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}, {"package": rx}]
+    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}, {"package": rx}, {"city": rx}]
     if compact:
         ors.append({"vehicle_no": {"$regex": r"\s*".join(compact), "$options": "i"}})
     return {"$or": ors}
@@ -1500,7 +1562,7 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
     first = min(start, month_start).isoformat()
     drivers = [x for x in await db.drivers.find({}, P).to_list(20000) if x.get("status") == "Active"]
     txns = await db.transactions.find({"payment_date": {"$gte": first, "$lte": today.isoformat()}},
-                                      {"_id": 0, "payment_date": 1, "amount": 1, "status": 1}).to_list(200000)
+                                      {"_id": 0, "driver_id": 1, "city": 1, "payment_date": 1, "amount": 1, "status": 1}).to_list(200000)
     by = {}
     for t in txns:
         by.setdefault(t["payment_date"], []).append(t)
@@ -1514,11 +1576,50 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
     mts = [t for t in txns if t["payment_date"] >= month_start.isoformat()]
     m_exp = sum(expected_between(x, month_start, today) for x in drivers)
     m_ver = sums(mts, "approved")
+
+    all_vehicles = await db.vehicles.find({}, {"_id": 0, "vehicle_id": 1, "city": 1, "status": 1, "rental_status": 1}).to_list(20000)
+    assigned_vids = {d["current_vehicle_id"] for d in await db.drivers.find({"current_vehicle_id": {"$ne": None}}, {"_id": 0, "current_vehicle_id": 1}).to_list(20000)}
+    drv_city_by_id = {d["id"]: d.get("city") for d in drivers if d.get("city")}
+    city_map = {}
+
+    def _c(c):
+        name = c or "Other"
+        if name not in city_map:
+            city_map[name] = {
+                "city": name,
+                "active_drivers": 0,
+                "vehicles_total": 0,
+                "vehicles_rented": 0,
+                "vehicles_available": 0,
+                "expected": 0.0,
+                "verified": 0.0,
+            }
+        return city_map[name]
+
+    for d in drivers:
+        entry = _c(d.get("city"))
+        entry["active_drivers"] += 1
+        entry["expected"] += expected_between(d, month_start, today)
+    for v in all_vehicles:
+        entry = _c(v.get("city"))
+        entry["vehicles_total"] += 1
+        if v.get("status") == "Active":
+            if v["vehicle_id"] in assigned_vids or v.get("rental_status") == "rented":
+                entry["vehicles_rented"] += 1
+            else:
+                entry["vehicles_available"] += 1
+    for t in mts:
+        if t["status"] == "approved":
+            c = drv_city_by_id.get(t.get("driver_id")) or t.get("city") or "Other"
+            _c(c)["verified"] += t["amount"]
+
+    by_city = sorted(city_map.values(), key=lambda x: x["city"])
     return {"series": series, "month": {"expected": m_exp, "verified": m_ver, "pending": sums(mts, "pending"),
                                          "outstanding": max(m_exp - m_ver, 0.0)},
-            "counts": {"active_drivers": len(drivers), "vehicles": await db.vehicles.count_documents({}),
-                       "vehicles_active": await db.vehicles.count_documents({"status": "Active"}),
-                       "pending_txns": await db.transactions.count_documents({"status": "pending"})}}
+            "counts": {"active_drivers": len(drivers), "vehicles": len(all_vehicles),
+                       "vehicles_active": sum(1 for v in all_vehicles if v.get("status") == "Active"),
+                       "pending_txns": await db.transactions.count_documents({"status": "pending"})},
+            "by_city": by_city}
 
 
 app.include_router(api)
@@ -1535,6 +1636,23 @@ async def migrate_passwords():
     )
     if res.modified_count:
         logger.info("Migrated default passwords for %d user(s)", res.modified_count)
+    for su in SEED_USERS:
+        await db.users.update_one(
+            {"id": su["id"], "$or": [{"mobile": {"$exists": False}}, {"mobile": None}, {"mobile": ""}]},
+            {"$set": {"mobile": su["mobile"]}},
+        )
+    missing = await db.users.find(
+        {"$or": [{"mobile": {"$exists": False}}, {"mobile": None}, {"mobile": ""}]},
+        {"_id": 0, "id": 1},
+    ).to_list(1000)
+    seq = 1
+    for u in missing:
+        while True:
+            cand = f"984509{seq:04d}"
+            seq += 1
+            if not await db.users.find_one({"mobile": cand}):
+                await db.users.update_one({"id": u["id"]}, {"$set": {"mobile": cand}})
+                break
 
 
 async def run_seed():

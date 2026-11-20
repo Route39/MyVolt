@@ -114,7 +114,10 @@ export default function AllDriversPage() {
               {!data && <SkeletonRows cols={COLS.length + 1} />}
               {data?.rows.map((r) => (
                 <tr key={r.id} className="clickable" onClick={() => nav(`/calendar?driver=${r.id}&month=${day.slice(0, 7)}`)} data-testid={`board-row-${r.id}`}>
-                  <td className="font-medium">{r.name}</td>
+                  <td className="font-medium">
+                    <div>{r.name}</div>
+                    {r.package && <div className="text-[11px] font-normal text-[#64748B]">{r.package}</div>}
+                  </td>
                   <td className="font-mono text-xs">{r.driver_code}</td>
                   <td className="font-mono text-xs text-[#64748B]">{r.mobile}</td>
                   <td>{r.city}</td>

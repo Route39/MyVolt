@@ -132,11 +132,14 @@ export default function TransactionDetailPage() {
             </div>
             <div className="divide-y">
               <Row label="Driver ID" testId="txn-driver-code"><span className="font-mono">{t.driver_code}</span></Row>
+              {d?.package && <Row label="Package">{d.package}</Row>}
               <Row label="Mobile"><span className="font-mono">{d?.mobile}</span></Row>
               <Row label="Vehicle ID (this payment)" testId="txn-vehicle-id">
                 {t.vehicle_id ? <span className="font-mono">{t.vehicle_id}</span> : <span className="italic text-muted-foreground">Vehicle ID not recorded</span>}
               </Row>
               <Row label="Vehicle reg. (this payment)" testId="txn-vehicle-reg"><span className="font-mono">{t.vehicle_no}</span></Row>
+              {t.vehicle?.vin && <Row label="Vehicle VIN"><span className="font-mono">{t.vehicle.vin}</span></Row>}
+              {t.vehicle?.rental_ends && <Row label="Rental ends"><span className="font-mono">{t.vehicle.rental_ends}</span></Row>}
               {d && d.current_vehicle_id !== t.vehicle_id && <Row label="Driver's current vehicle"><span className="font-mono text-muted-foreground">{d.current_vehicle_id || "none"}</span></Row>}
               <Row label="City">{t.city}</Row>
               <Row label="Joining date">{fmtDate(d?.joining_date)}</Row>

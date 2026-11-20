@@ -14,12 +14,12 @@ def hash_pw(pw: str) -> str:
     return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 USERS = [
-    {"id": "u-admin", "name": "Anita Rao", "email": "anita.admin@route39.in", "role": "admin"},
-    {"id": "u-staff-1", "name": "Ravi Kumar", "email": "ravi.staff@route39.in", "role": "staff"},
-    {"id": "u-staff-2", "name": "Suresh Patel", "email": "suresh.staff@route39.in", "role": "staff"},
-    {"id": "u-staff-3", "name": "Meena Iyer", "email": "meena.staff@route39.in", "role": "staff"},
-    {"id": "u-acc-1", "name": "Priya Sharma", "email": "priya.accounts@route39.in", "role": "accounts"},
-    {"id": "u-acc-2", "name": "Farhan Ali", "email": "farhan.accounts@route39.in", "role": "accounts"},
+    {"id": "u-admin", "name": "Anita Rao", "mobile": "9845000001", "email": "anita.admin@route39.in", "role": "admin"},
+    {"id": "u-staff-1", "name": "Ravi Kumar", "mobile": "9845000004", "email": "ravi.staff@route39.in", "role": "staff"},
+    {"id": "u-staff-2", "name": "Suresh Patel", "mobile": "9845000005", "email": "suresh.staff@route39.in", "role": "staff"},
+    {"id": "u-staff-3", "name": "Meena Iyer", "mobile": "9845000006", "email": "meena.staff@route39.in", "role": "staff"},
+    {"id": "u-acc-1", "name": "Priya Sharma", "mobile": "9845000002", "email": "priya.accounts@route39.in", "role": "accounts"},
+    {"id": "u-acc-2", "name": "Farhan Ali", "mobile": "9845000003", "email": "farhan.accounts@route39.in", "role": "accounts"},
 ]
 
 DRIVERS = [

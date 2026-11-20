@@ -28,6 +28,8 @@ const blankRow = (city = "Bengaluru", rent = 700) => ({
   rental_status: "",
   status: "Active",
   details: "",
+  has_daily_rent: true,
+  has_joining_date: true,
 });
 
 export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_vehicles", onImported }) => {
@@ -38,6 +40,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   const [filename, setFilename] = useState("");
   const [rows, setRows] = useState([]);
   const [rawPreview, setRawPreview] = useState("");
+  const [ocrUsed, setOcrUsed] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [downloadingTpl, setDownloadingTpl] = useState(false);
@@ -49,6 +52,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       setFilename("");
       setRows([]);
       setRawPreview("");
+      setOcrUsed(false);
       setResult(null);
     }
   }, [open, defaultMode]);
@@ -65,6 +69,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       const { data } = await api.post("/import/parse", fd);
       setRows(data.rows || []);
       setRawPreview(data.raw_text_preview || "");
+      setOcrUsed(!!data.ocr_used);
       if (data.detected_mode && data.rows?.length > 0) {
         setMode(data.detected_mode);
       }
@@ -94,7 +99,15 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   };
 
   const updateCell = (idx, key, val) => {
-    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== idx) return r;
+        const next = { ...r, [key]: val };
+        if (key === "daily_rent") next.has_daily_rent = true;
+        if (key === "joining_date") next.has_joining_date = true;
+        return next;
+      })
+    );
   };
 
   const updateStatusCell = (idx, val) => {
@@ -115,11 +128,15 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
 
   const applyDefaultsToEmpty = () => {
     setRows((prev) =>
-      prev.map((r) => ({
-        ...r,
-        city: r.city || defaultCity || "Bengaluru",
-        daily_rent: Number(r.daily_rent) > 0 ? r.daily_rent : Number(defaultRent) || 700,
-      }))
+      prev.map((r) => {
+        const hasRent = Number(r.daily_rent) > 0;
+        return {
+          ...r,
+          city: r.city || defaultCity || "Bengaluru",
+          daily_rent: hasRent ? r.daily_rent : Number(defaultRent) || 700,
+          has_daily_rent: hasRent ? r.has_daily_rent : true,
+        };
+      })
     );
     toast.success("Applied defaults to empty fields");
   };
@@ -141,7 +158,9 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           ...r,
           city: (r.city || defaultCity || "Bengaluru").trim(),
           daily_rent: Number(r.daily_rent) || Number(defaultRent) || 700,
-          joining_date: r.joining_date || todayIso(),
+          joining_date: r.joining_date || "",
+          has_daily_rent: r.has_daily_rent,
+          has_joining_date: r.has_joining_date,
         })),
       };
       const { data } = await api.post("/import/commit", payload);
@@ -177,10 +196,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-[#15803D]" />
-            Import Drivers &amp; Vehicles from Excel / PDF / CSV
+            Import Drivers &amp; Vehicles (Excel / PDF / Image / CSV)
           </DialogTitle>
           <DialogDescription>
-            Upload any Excel (.xlsx), PDF, or CSV export from your old platform. Review or edit extracted records before saving into MyVolt.
+            Upload any Excel (.xlsx), PDF (text or scanned), CSV, or screenshot image (.png, .jpg, .webp) from your old platform. Review or edit extracted records before saving into MyVolt.
           </DialogDescription>
         </DialogHeader>
 
@@ -188,10 +207,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#16A34A] px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#15803D]">
               {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              <span>{parsing ? "Extracting data..." : filename ? "Upload another file" : "Choose Excel / PDF / CSV"}</span>
+              <span>{parsing ? "Extracting data..." : filename ? "Upload another file" : "Choose File (Excel / PDF / Image)"}</span>
               <input
                 type="file"
-                accept=".pdf,.xlsx,.xlsm,.csv"
+                accept=".pdf,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.webp"
                 onChange={handleFile}
                 disabled={parsing}
                 className="hidden"
@@ -213,6 +232,11 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
             {filename && (
               <span className="text-xs font-medium text-[#17212B]" data-testid="import-filename">
                 {filename} · <strong>{rows.length}</strong> row(s)
+              </span>
+            )}
+            {ocrUsed && (
+              <span className="inline-flex items-center rounded bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700" data-testid="import-ocr-badge">
+                Extracted via OCR — double-check spelling before importing
               </span>
             )}
           </div>
@@ -468,9 +492,9 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           ) : (
             <div className="flex h-full min-h-[220px] flex-col items-center justify-center p-6 text-center">
               <FileUp className="h-8 w-8 text-[#94A3B8]" />
-              <p className="mt-2 text-sm font-medium text-[#17212B]">Upload your old platform Excel, PDF, or CSV export</p>
+              <p className="mt-2 text-sm font-medium text-[#17212B]">Upload your old platform Excel, PDF, CSV, or screenshot image</p>
               <p className="mt-1 max-w-md text-xs text-[#64748B]">
-                Accepts your old platform PDFs, Excel spreadsheets (.xlsx), and CSV files — including Driver IDs, Packages, Vehicle VINs, Rental Ends, Cities, and Rent Rates.
+                Accepts your old platform PDFs (text or scanned), Excel spreadsheets (.xlsx), CSV files, and table screenshots (.png, .jpg, .webp) — including Driver IDs, Packages, Vehicle VINs, Rental Ends, Cities, and Rent Rates.
               </p>
               {rawPreview && (
                 <pre className="mt-4 max-h-36 w-full max-w-2xl overflow-auto rounded border bg-[#F8FAFB] p-2.5 text-left font-mono text-[11px] text-[#334155]">

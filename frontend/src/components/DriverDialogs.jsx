@@ -55,7 +55,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
             {driver ? (
               <F label="Driver ID (permanent)"><Input disabled value={driver.driver_code} className="font-mono" data-testid="driver-form-code-locked" /></F>
             ) : (
-              <F label="Driver ID override (optional)"><Input value={f.driver_code} onChange={set("driver_code")} placeholder="Auto, e.g. BLR-D-005" className="font-mono" data-testid="driver-form-code" /></F>
+              <F label="Driver ID override (optional)"><Input value={f.driver_code} onChange={set("driver_code")} placeholder="Auto, e.g. BLR-D-005 or R39D-TUP001" className="font-mono" data-testid="driver-form-code" /></F>
             )}
             {!driver && (
               <F label="Assign vehicle (optional)">

@@ -1,10 +1,17 @@
 import csv
 import io
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
+from PIL import Image
 from pypdf import PdfReader
 
 CITY_ALIASES = {
@@ -445,6 +452,8 @@ def _empty_row(today_str: str) -> Dict[str, Any]:
         "rental_status": "",
         "status": "Active",
         "details": "",
+        "has_daily_rent": False,
+        "has_joining_date": False,
     }
 
 
@@ -487,8 +496,10 @@ def _row_from_mapping(
     item["name"] = name
     item["mobile"] = mobile
     item["city"] = clean_city(raw.get("city"), default="Bengaluru")
+    item["has_daily_rent"] = not _is_blank(raw.get("daily_rent"))
+    item["has_joining_date"] = not _is_blank(raw.get("joining_date"))
     item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=700.0)
-    joining = clean_date(raw.get("joining_date"), today_str)
+    joining = clean_date(raw.get("joining_date"), today_str) if item["has_joining_date"] else (today_str if name else "")
     item["joining_date"] = joining
     item["handover_date"] = clean_date(raw.get("handover_date"), joining) if not _is_blank(raw.get("handover_date")) else ""
     item["rent_start_date"] = clean_date(raw.get("rent_start_date"), joining) if not _is_blank(raw.get("rent_start_date")) else ""
@@ -623,7 +634,7 @@ def _merge_wrapped_data_rows(rows: List[List[Any]], row_ys: Optional[List[float]
     for idx, raw_r in enumerate(rows):
         r = [c for c in raw_r]
         non_empty = [j for j, c in enumerate(r) if str(c or "").strip()]
-        is_sparse = len(r) >= 2 and 1 <= len(non_empty) <= 3 and not str(r[0] or "").strip()
+        is_sparse = len(r) >= 2 and 1 <= len(non_empty) <= max(3, len(r) // 2) and not str(r[0] or "").strip()
 
         if not is_sparse:
             if pending_prefix is not None:
@@ -960,14 +971,18 @@ def _extract_coord_rows(page) -> List[List[Tuple[float, str]]]:
 
 
 def _align_coord_table_with_y(
-    coord_rows_y: List[Tuple[float, List[Tuple[float, str]]]], prev_col_xs: Optional[List[float]] = None
+    coord_rows_y: List[Tuple[float, List[Tuple[float, str]]]],
+    prev_col_xs: Optional[List[float]] = None,
+    x_scale_h: float = 12.0,
+    header_probe_rows: Optional[List[List[Tuple[float, str]]]] = None,
 ) -> Tuple[List[List[str]], List[float], Optional[List[float]]]:
     if not coord_rows_y:
         return [], [], prev_col_xs
 
     col_xs = prev_col_xs
     header_idx = None
-    for idx, (_, row) in enumerate(coord_rows_y[:15]):
+    probe_list = header_probe_rows if header_probe_rows is not None else [r for _, r in coord_rows_y]
+    for idx, row in enumerate(probe_list[:15]):
         cand = _build_col_map([txt for _, txt in row])
         if len(cand) >= 2:
             col_xs = [x for x, _ in row]
@@ -979,34 +994,187 @@ def _align_coord_table_with_y(
 
     keep_from = header_idx if header_idx is not None else 0
     if header_idx is not None and header_idx > 0:
-        prev_row = coord_rows_y[header_idx - 1][1]
+        prev_row = probe_list[header_idx - 1]
         if 1 <= len(prev_row) <= 3 and all(
             re.match(r"^[A-Za-z][A-Za-z /()._-]{0,20}$", txt) and not REG_RX.search(txt) for _, txt in prev_row
         ):
             keep_from = header_idx - 1
+
+    tol_left = max(18.0, x_scale_h * 0.9)
 
     aligned: List[List[str]] = []
     aligned_ys: List[float] = []
     for idx, (y, row) in enumerate(coord_rows_y):
         if idx < keep_from:
             continue
-        if len(row) == len(col_xs):
-            aligned.append([txt for _, txt in row])
+        if idx == header_idx and len(probe_list[idx]) == len(col_xs):
+            aligned.append([txt for _, txt in probe_list[idx]])
             aligned_ys.append(y)
             continue
+        if len(row) == len(col_xs):
+            all_in_slot = True
+            for j, (x, _) in enumerate(row):
+                cx = col_xs[j]
+                if j + 1 < len(col_xs):
+                    tol_n = min(tol_left, (col_xs[j + 1] - cx) * 0.45)
+                    limit = col_xs[j + 1] - tol_n
+                else:
+                    limit = float("inf")
+                if not ((cx - tol_left) <= x < limit):
+                    all_in_slot = False
+                    break
+            if all_in_slot:
+                aligned.append([txt for _, txt in row])
+                aligned_ys.append(y)
+                continue
         cells = [""] * len(col_xs)
         for x, txt in row:
             matched_j = None
             for j, cx in enumerate(col_xs):
-                if j + 1 < len(col_xs) and (cx - 18.0 <= x < col_xs[j + 1] - 12.0):
-                    matched_j = j
-                    break
+                if j + 1 < len(col_xs):
+                    tol_n = min(tol_left, (col_xs[j + 1] - cx) * 0.45)
+                    if (cx - tol_left) <= x < (col_xs[j + 1] - tol_n):
+                        matched_j = j
+                        break
             if matched_j is None:
                 matched_j = min(range(len(col_xs)), key=lambda j: abs(x - col_xs[j]))
-            cells[matched_j] = f"{cells[matched_j]} {txt}".strip() if cells[matched_j] else txt
+            cells[matched_j] = _merge_cell_text(cells[matched_j], txt)
         aligned.append(cells)
         aligned_ys.append(y)
     return aligned, aligned_ys, col_xs
+
+
+OCR_SCRIPT_PATH = Path(__file__).parent / "ocr_vision.js"
+
+
+def _run_vision_ocr(mode: str, data: bytes, suffix: str) -> List[Dict[str, Any]]:
+    osascript_bin = shutil.which("osascript")
+    if not osascript_bin or not OCR_SCRIPT_PATH.exists():
+        raise ValueError(
+            "Image OCR requires macOS Vision or tesseract; please upload an Excel (.xlsx), CSV, or text-based PDF."
+        )
+    payload = data
+    out_suffix = suffix
+    if mode == "image":
+        try:
+            with Image.open(io.BytesIO(data)) as im:
+                if im.width < 800:
+                    resized = im.resize((im.width * 2, im.height * 2), Image.LANCZOS)
+                    buf = io.BytesIO()
+                    resized.save(buf, format="PNG")
+                    payload = buf.getvalue()
+                    out_suffix = ".png"
+        except Exception:
+            pass
+    fd, tmp_path = tempfile.mkstemp(suffix=out_suffix)
+    try:
+        os.write(fd, payload)
+        os.close(fd)
+        proc = subprocess.run(
+            [osascript_bin, "-l", "JavaScript", str(OCR_SCRIPT_PATH), mode, tmp_path],
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+        if proc.returncode != 0:
+            raise ValueError(f"OCR engine failed: {(proc.stderr or proc.stdout or '').strip()}")
+        return json.loads(proc.stdout or "[]")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _ocr_page_to_rows(
+    tokens: List[Dict[str, Any]],
+    today_str: str,
+    last_col_map: Optional[Dict[int, str]],
+    last_col_xs: Optional[List[float]],
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[int, str]], Optional[List[float]], str]:
+    if not tokens:
+        return [], last_col_map, last_col_xs, ""
+
+    heights = sorted(float(t["h"]) for t in tokens if float(t.get("h") or 0) > 0)
+    median_h = heights[len(heights) // 2] if heights else 20.0
+    enriched = []
+    for t in tokens:
+        x = float(t["x"])
+        y = float(t["y"])
+        w = float(t["w"])
+        h = float(t["h"])
+        cy = y + h / 2.0
+        enriched.append((cy, x, w, str(t["text"])))
+
+    enriched.sort(key=lambda item: (-item[0], item[1]))
+    y_tol = max(6.0, median_h * 0.45)
+    y_groups: List[List[Tuple[float, float, float, str]]] = []
+    for item in enriched:
+        if not y_groups or abs(item[0] - y_groups[-1][0][0]) > y_tol:
+            y_groups.append([item])
+        else:
+            y_groups[-1].append(item)
+
+    coord_rows_y: List[Tuple[float, List[Tuple[float, str]]]] = []
+    header_probe_rows: List[List[Tuple[float, str]]] = []
+    raw_lines: List[str] = []
+    merge_gap = max(10.0, median_h * 0.65)
+
+    for grp in y_groups:
+        grp.sort(key=lambda item: item[1])
+        avg_cy = sum(it[0] for it in grp) / len(grp)
+        coord_rows_y.append((avg_cy, [(x, txt) for _, x, _, txt in grp]))
+
+        probe: List[Tuple[float, float, str]] = []
+        line_chunks: List[str] = []
+        for _, x, w, txt in grp:
+            if probe and (x - probe[-1][1]) <= merge_gap:
+                px, _, ptxt = probe[-1]
+                probe[-1] = (px, max(probe[-1][1], x + w), f"{ptxt} {txt}")
+                line_chunks[-1] = f"{line_chunks[-1]} {txt}"
+            else:
+                probe.append((x, x + w, txt))
+                line_chunks.append(txt)
+        header_probe_rows.append([(px, ptxt) for px, _, ptxt in probe])
+        raw_lines.append("  ".join(line_chunks))
+
+    raw_text = "\n".join(raw_lines)
+    aligned_table, aligned_ys, new_col_xs = _align_coord_table_with_y(
+        coord_rows_y,
+        prev_col_xs=last_col_xs,
+        x_scale_h=median_h,
+        header_probe_rows=header_probe_rows,
+    )
+    page_rows: List[Dict[str, Any]] = []
+    new_col_map = last_col_map
+    if aligned_table:
+        page_rows, new_col_map = _parse_table_rows(aligned_table, today_str, last_col_map, row_ys=aligned_ys)
+    if not page_rows and raw_text.strip():
+        page_rows = _parse_text_lines(raw_text, today_str)
+    return page_rows, new_col_map, new_col_xs, raw_text
+
+
+def parse_image(data: bytes, ext: str, today_str: str) -> Dict[str, Any]:
+    pages = _run_vision_ocr("image", data, f".{ext}")
+    rows: List[Dict[str, Any]] = []
+    raw_chunks: List[str] = []
+    last_col_map: Optional[Dict[int, str]] = None
+    last_col_xs: Optional[List[float]] = None
+    for page in pages:
+        page_rows, last_col_map, last_col_xs, raw_txt = _ocr_page_to_rows(
+            page.get("tokens") or [], today_str, last_col_map, last_col_xs
+        )
+        rows.extend(page_rows)
+        if raw_txt.strip():
+            raw_chunks.append(raw_txt)
+    rows = _dedupe_rows(rows)
+    return {
+        "detected_mode": _detect_mode(rows),
+        "total_rows": len(rows),
+        "rows": rows,
+        "raw_text_preview": "\n".join(raw_chunks).strip()[:1500],
+        "ocr_used": True,
+    }
 
 
 def parse_pdf(data: bytes, today_str: str) -> Dict[str, Any]:
@@ -1038,6 +1206,20 @@ def parse_pdf(data: bytes, today_str: str) -> Dict[str, Any]:
             page_rows.extend(_parse_text_lines(txt, today_str))
         rows.extend(page_rows)
 
+    ocr_used = False
+    if not rows and shutil.which("osascript") and OCR_SCRIPT_PATH.exists():
+        ocr_pages = _run_vision_ocr("pdf", data, ".pdf")
+        ocr_col_map: Optional[Dict[int, str]] = None
+        ocr_col_xs: Optional[List[float]] = None
+        for op in ocr_pages:
+            page_rows, ocr_col_map, ocr_col_xs, raw_txt = _ocr_page_to_rows(
+                op.get("tokens") or [], today_str, ocr_col_map, ocr_col_xs
+            )
+            rows.extend(page_rows)
+            if raw_txt.strip():
+                text_chunks.append(raw_txt)
+        ocr_used = True
+
     raw_text = "\n".join(text_chunks)
     rows = _dedupe_rows(rows)
     return {
@@ -1045,6 +1227,7 @@ def parse_pdf(data: bytes, today_str: str) -> Dict[str, Any]:
         "total_rows": len(rows),
         "rows": rows,
         "raw_text_preview": raw_text.strip()[:1500],
+        "ocr_used": ocr_used,
     }
 
 
@@ -1064,6 +1247,7 @@ def parse_xlsx(data: bytes, today_str: str) -> Dict[str, Any]:
         "total_rows": len(rows),
         "rows": rows,
         "raw_text_preview": "\n".join(preview_lines)[:1500],
+        "ocr_used": False,
     }
 
 
@@ -1083,6 +1267,7 @@ def parse_csv(data: bytes, today_str: str) -> Dict[str, Any]:
         "total_rows": len(rows),
         "rows": rows,
         "raw_text_preview": text[:1500],
+        "ocr_used": False,
     }
 
 
@@ -1094,7 +1279,9 @@ def parse_import_file(filename: str, data: bytes, today_str: str) -> Dict[str, A
         res = parse_xlsx(data, today_str)
     elif ext == "csv":
         res = parse_csv(data, today_str)
+    elif ext in ("png", "jpg", "jpeg", "webp"):
+        res = parse_image(data, ext, today_str)
     else:
-        raise ValueError("Unsupported file type. Upload a PDF, XLSX, or CSV file.")
+        raise ValueError("Unsupported file type. Upload an Excel (.xlsx), PDF, CSV, or screenshot image (PNG/JPG/WEBP).")
     res["filename"] = filename
     return res

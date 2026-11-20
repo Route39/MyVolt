@@ -28,6 +28,13 @@ export const DriverCard = ({ driver, onChangeVehicle }) => (
         <div className="font-mono text-sm">
           <div className="font-semibold" data-testid="driver-card-vehicle-id">{driver.current_vehicle_id || "None assigned"}</div>
           {driver.vehicle_no && <div className="break-all text-xs text-muted-foreground" data-testid="driver-card-vehicle">{driver.vehicle_no}</div>}
+          {(driver.current_vehicle?.vin || driver.current_vehicle?.rental_ends) && (
+            <div className="mt-0.5 text-[11px] text-[#64748B]" data-testid="driver-card-vehicle-meta">
+              {driver.current_vehicle?.vin ? `VIN: ${driver.current_vehicle.vin}` : ""}
+              {driver.current_vehicle?.vin && driver.current_vehicle?.rental_ends ? " · " : ""}
+              {driver.current_vehicle?.rental_ends ? `Ends: ${driver.current_vehicle.rental_ends}` : ""}
+            </div>
+          )}
         </div>
       </div>
       {onChangeVehicle && (
@@ -40,6 +47,7 @@ export const DriverCard = ({ driver, onChangeVehicle }) => (
       <Field label="Mobile" value={driver.mobile} mono testId="driver-card-mobile" />
       <Field label="City" value={driver.city} testId="driver-card-city" />
       <Field label="Daily rent" value={inr(driver.daily_rent)} testId="driver-card-rent" />
+      <Field label="Package" value={driver.package || "—"} testId="driver-card-package" />
       <Field label="Joining date" value={fmtDate(driver.joining_date)} testId="driver-card-joining" />
       <Field label="Vehicle handover" value={fmtDate(driver.handover_date)} testId="driver-card-handover" />
       <Field label="Rent starts" value={fmtDate(driver.rent_start_date)} testId="driver-card-rent-start" />

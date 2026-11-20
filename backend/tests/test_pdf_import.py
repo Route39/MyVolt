@@ -6,8 +6,10 @@ import pytest
 import requests
 from dotenv import load_dotenv
 from openpyxl import Workbook, load_workbook
+from PIL import Image, ImageDraw
 from pymongo import MongoClient
 from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from reportlab.platypus import SimpleDocTemplate, Table
 
@@ -16,13 +18,17 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstr
 API = f"{BASE_URL}/api"
 
 SUFFIX = uuid.uuid4().hex[:4].upper()
-CREATED = {"drivers": [], "vehicles": []}
+CREATED = {"drivers": [], "vehicles": [], "txns": []}
+IMG1_PATH = "/Users/admin/.gemini/antigravity/brain/fa4f0867-f97a-43ed-b41d-b534c4d6631f/.user_uploaded/media_1795185152159_0809fd1a.png"
+IMG2_PATH = "/Users/admin/.gemini/antigravity/brain/fa4f0867-f97a-43ed-b41d-b534c4d6631f/.user_uploaded/media_1795185162152_00546b4e.png"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def cleanup():
-    yield
+def _cleanup_test_records():
     m = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+    for tid in CREATED["txns"]:
+        m.transactions.delete_one({"id": tid})
+        m.notifications.delete_many({"txn_id": tid})
+        m.audit_logs.delete_many({"entity_id": tid})
     for did in CREATED["drivers"]:
         m.drivers.delete_one({"id": did})
         m.vehicle_assignments.delete_many({"driver_id": did})
@@ -33,19 +39,38 @@ def cleanup():
     for code in ["R39D-TUP001"]:
         d = m.drivers.find_one({"driver_code": code})
         if d:
+            m.transactions.delete_many({"driver_id": d["id"]})
             m.drivers.delete_one({"id": d["id"]})
             m.vehicle_assignments.delete_many({"driver_id": d["id"]})
+            m.audit_logs.delete_many({"driver_id": d["id"]})
+    for name_rx in [f"^Ravi_{SUFFIX}$", f"^Ravi_E2E_{SUFFIX}$"]:
+        d = m.drivers.find_one({"name": {"$regex": name_rx}})
+        if d:
+            m.drivers.delete_one({"id": d["id"]})
+            m.vehicle_assignments.delete_many({"driver_id": d["id"]})
+            m.audit_logs.delete_many({"driver_id": d["id"]})
     for rk in ["TUP001HJJHJJHJ", "141KA51AJ2624", "150KA05AM1234"]:
         v = m.vehicles.find_one({"reg_key": rk})
         if v:
             m.vehicles.delete_one({"vehicle_id": v["vehicle_id"]})
+            m.audit_logs.delete_many({"entity_id": v["vehicle_id"]})
     m.audit_logs.delete_many({"action": "Bulk data imported", "ts": {"$gte": "2026-11-20"}})
 
 
-def admin_headers():
-    r = requests.post(f"{API}/auth/login", json={"email": "anita.admin@route39.in", "password": "route39@123"})
+@pytest.fixture(scope="module", autouse=True)
+def cleanup():
+    yield
+    _cleanup_test_records()
+
+
+def login_headers(mobile: str, password: str = "route39@123"):
+    r = requests.post(f"{API}/auth/login", json={"mobile": mobile, "password": password})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def admin_headers():
+    return login_headers("9845000001")
 
 
 def build_table_pdf(reg1: str, reg2: str) -> bytes:
@@ -380,3 +405,310 @@ class TestPdfExcelCsvImport:
         assert rv["vin"] == "MBX0007EF2B260000"
         assert rv["rental_ends"] == "2026-11-25"
         assert rv["current_driver"]["name"] == ravi_name
+
+    def test_image1_actual_png_ocr_import(self):
+        hdrs = admin_headers()
+        if os.path.exists(IMG1_PATH):
+            with open(IMG1_PATH, "rb") as f:
+                img_bytes = f.read()
+        else:
+            im = Image.new("RGB", (1024, 181), "white")
+            draw = ImageDraw.Draw(im)
+            draw.text((28, 22), "Driver        ID           Phone        Vehicle       Package       City        Joining", fill="black")
+            draw.text((852, 46), "Date", fill="black")
+            draw.text((28, 95), "varshini      R39D-        7904800475   TUP001-       Silver        Tiruppur    2026-10-03", fill="black")
+            draw.text((130, 120), "TUP001                    hjjhjjhj      Package", fill="black")
+            b = io.BytesIO()
+            im.save(b, format="PNG")
+            img_bytes = b.getvalue()
+
+        r = requests.post(
+            f"{API}/import/parse",
+            headers=hdrs,
+            files={"file": ("image1.png", io.BytesIO(img_bytes), "image/png")},
+        )
+        assert r.status_code == 200, r.text
+        parsed = r.json()
+        assert parsed["ocr_used"] is True
+        assert parsed["total_rows"] == 1
+        row = parsed["rows"][0]
+        assert row["name"] == "varshini"
+        assert row["driver_code"] == "R39D-TUP001"
+        assert row["mobile"] == "7904800475"
+        assert row["reg_no"].startswith("TUP001 - ")
+        assert row["package"] == "Silver Package"
+        assert row["city"] == "Tiruppur"
+        assert row["joining_date"] == "2026-10-03"
+        assert row["has_joining_date"] is True
+
+    def test_image2_actual_png_ocr_import_and_scanned_pdf(self):
+        hdrs = admin_headers()
+        if os.path.exists(IMG2_PATH):
+            with open(IMG2_PATH, "rb") as f:
+                img_bytes = f.read()
+        else:
+            im = Image.new("RGB", (1024, 224), "white")
+            draw = ImageDraw.Draw(im)
+            draw.text((18, 24), "Vehicle               Status     Driver        City        VIN                 Rental", fill="black")
+            draw.text((855, 48), "Ends", fill="black")
+            draw.text((16, 100), "141 - KA51AJ2624      available  Not           Bangalore   MBX0007EF2B266083   (blank)", fill="black")
+            draw.text((340, 124), "Assigned", fill="black")
+            draw.text((16, 176), "150 - KA05AM1234      rented     Ravi          Bangalore   MBX0007EF2B260000   2026-11-25", fill="black")
+            b = io.BytesIO()
+            im.save(b, format="PNG")
+            img_bytes = b.getvalue()
+
+        # 1. Direct PNG upload
+        r_png = requests.post(
+            f"{API}/import/parse",
+            headers=hdrs,
+            files={"file": ("image2.png", io.BytesIO(img_bytes), "image/png")},
+        )
+        assert r_png.status_code == 200, r_png.text
+        parsed_png = r_png.json()
+
+        # 2. Image-only scanned PDF containing the same image
+        im2 = Image.open(io.BytesIO(img_bytes))
+        pdf_buf = io.BytesIO()
+        c = canvas.Canvas(pdf_buf, pagesize=(im2.width, im2.height))
+        c.drawImage(ImageReader(io.BytesIO(img_bytes)), 0, 0, width=im2.width, height=im2.height)
+        c.save()
+        r_pdf = requests.post(
+            f"{API}/import/parse",
+            headers=hdrs,
+            files={"file": ("image2_scanned.pdf", io.BytesIO(pdf_buf.getvalue()), "application/pdf")},
+        )
+        assert r_pdf.status_code == 200, r_pdf.text
+        parsed_pdf = r_pdf.json()
+
+        for parsed in (parsed_png, parsed_pdf):
+            assert parsed["ocr_used"] is True
+            assert parsed["total_rows"] == 2
+            v0, v1 = parsed["rows"][0], parsed["rows"][1]
+            assert v0["reg_no"] == "141 - KA51AJ2624"
+            assert v0["rental_status"] == "available"
+            assert v0["name"] == ""
+            assert v0["city"] == "Bengaluru"
+            assert v0["vin"] == "MBX0007EF2B266083"
+            assert v0["rental_ends"] == ""
+            assert v0["has_daily_rent"] is False
+            assert v0["has_joining_date"] is False
+
+            assert v1["reg_no"] == "150 - KA05AM1234"
+            assert v1["rental_status"] == "rented"
+            assert v1["name"] == "Ravi"
+            assert v1["city"] == "Bengaluru"
+            assert v1["vin"] == "MBX0007EF2B260000"
+            assert v1["rental_ends"] == "2026-11-25"
+            assert v1["has_daily_rent"] is False
+            assert v1["has_joining_date"] is False
+
+    def test_full_platform_end_to_end_with_imported_image1_and_image2_data(self):
+        _cleanup_test_records()
+        hdrs = admin_headers()
+        staff_hdrs = login_headers("9845000004")
+        acc_hdrs = login_headers("9845000002")
+        ravi_e2e = f"Ravi_E2E_{SUFFIX}"
+
+        # Commit Image 1 + Image 2 rows cleanly
+        commit_rows = [
+            {
+                "name": "varshini",
+                "driver_code": "R39D-TUP001",
+                "mobile": "7904800475",
+                "reg_no": "TUP001 - hjjhjjhj",
+                "package": "Silver Package",
+                "city": "Tiruppur",
+                "joining_date": "2026-10-03",
+                "daily_rent": 800,
+                "status": "Active",
+                "has_daily_rent": True,
+                "has_joining_date": True,
+            },
+            {
+                "name": "",
+                "reg_no": "141 - KA51AJ2624",
+                "city": "Bengaluru",
+                "vin": "MBX0007EF2B266083",
+                "rental_ends": "",
+                "rental_status": "available",
+                "status": "Active",
+                "has_daily_rent": False,
+                "has_joining_date": False,
+            },
+            {
+                "name": ravi_e2e,
+                "mobile": "9845099887",
+                "reg_no": "150 - KA05AM1234",
+                "city": "Bengaluru",
+                "vin": "MBX0007EF2B260000",
+                "rental_ends": "2026-11-25",
+                "rental_status": "rented",
+                "joining_date": "2026-10-15",
+                "daily_rent": 950,
+                "status": "Active",
+                "has_daily_rent": True,
+                "has_joining_date": True,
+            },
+        ]
+        cr = requests.post(
+            f"{API}/import/commit",
+            headers=hdrs,
+            json={"mode": "drivers_and_vehicles", "update_existing": True, "rows": commit_rows},
+        )
+        assert cr.status_code == 200, cr.text
+        cres = cr.json()
+        assert cres["errors"] == []
+
+        # 1. Drivers endpoint + filter by city & package
+        drvs = requests.get(f"{API}/drivers", headers=hdrs, params={"city": "Tiruppur", "q": "Silver"}).json()
+        assert len(drvs) == 1
+        varshini = drvs[0]
+        CREATED["drivers"].append(varshini["id"])
+        if varshini.get("current_vehicle_id"):
+            CREATED["vehicles"].append(varshini["current_vehicle_id"])
+        assert varshini["driver_code"] == "R39D-TUP001"
+        assert varshini["package"] == "Silver Package"
+        assert varshini["vehicle_no"] == "TUP001 - hjjhjjhj"
+        assert varshini["daily_rent"] == 800
+
+        # 2. Vehicles endpoint + status/driver search + XLSX filtered export
+        avail = requests.get(
+            f"{API}/vehicles", headers=hdrs, params={"status": "available", "q": "MBX0007EF2B266083"}
+        ).json()
+        assert len(avail) == 1 and avail[0]["reg_no"] == "141 - KA51AJ2624"
+        CREATED["vehicles"].append(avail[0]["vehicle_id"])
+
+        by_driver_q = requests.get(f"{API}/vehicles", headers=hdrs, params={"q": "varshini"}).json()
+        assert any(v["reg_no"] == "TUP001 - hjjhjjhj" for v in by_driver_q)
+
+        avail_xlsx = requests.get(f"{API}/vehicles", headers=hdrs, params={"status": "available", "format": "xlsx"})
+        assert avail_xlsx.status_code == 200 and avail_xlsx.content[:2] == b"PK"
+        wb_avail = load_workbook(io.BytesIO(avail_xlsx.content))
+        avail_rows = [r for r in list(wb_avail.active.iter_rows(values_only=True))[4:] if r and r[0]]
+        assert avail_rows and all(r[2] == "available" for r in avail_rows)
+
+        # Track Ravi E2E driver + vehicle for cleanup
+        ravi_drv = requests.get(f"{API}/drivers", headers=hdrs, params={"q": ravi_e2e}).json()[0]
+        CREATED["drivers"].append(ravi_drv["id"])
+        if ravi_drv.get("current_vehicle_id"):
+            CREATED["vehicles"].append(ravi_drv["current_vehicle_id"])
+
+        # 3. Non-destructive re-import from Image 2 (has_daily_rent=False, has_joining_date=False) preserves 950 and 2026-10-15
+        reimp = requests.post(
+            f"{API}/import/commit",
+            headers=hdrs,
+            json={
+                "mode": "vehicles",
+                "update_existing": True,
+                "rows": [
+                    {
+                        "name": ravi_e2e,
+                        "reg_no": "150 - KA05AM1234",
+                        "city": "Bengaluru",
+                        "vin": "MBX0007EF2B260000",
+                        "rental_ends": "2026-11-30",
+                        "rental_status": "rented",
+                        "daily_rent": 700,
+                        "joining_date": "",
+                        "status": "Active",
+                        "has_daily_rent": False,
+                        "has_joining_date": False,
+                    }
+                ],
+            },
+        )
+        assert reimp.status_code == 200, reimp.text
+        ravi_after = requests.get(f"{API}/drivers/{ravi_drv['id']}", headers=hdrs).json()
+        assert ravi_after["daily_rent"] == 950
+        assert ravi_after["joining_date"] == "2026-10-15"
+        assert ravi_after["current_vehicle"]["rental_ends"] == "2026-11-30"
+
+        # 4. Re-importing 150 - KA05AM1234 as available / Not Assigned unassigns driver
+        unassign_res = requests.post(
+            f"{API}/import/commit",
+            headers=hdrs,
+            json={
+                "mode": "vehicles",
+                "update_existing": True,
+                "rows": [
+                    {
+                        "name": "Not Assigned",
+                        "reg_no": "150 - KA05AM1234",
+                        "city": "Bengaluru",
+                        "vin": "MBX0007EF2B260000",
+                        "rental_ends": "(blank)",
+                        "rental_status": "available",
+                        "status": "Active",
+                        "has_daily_rent": False,
+                        "has_joining_date": False,
+                    }
+                ],
+            },
+        )
+        assert unassign_res.status_code == 200, unassign_res.text
+        veh_150 = requests.get(f"{API}/vehicles", headers=hdrs, params={"q": "KA05AM1234"}).json()[0]
+        assert veh_150["current_driver"] is None
+        assert veh_150["rental_status"] == "available"
+        assert veh_150["rental_ends"] == ""
+
+        # 5. Overview includes Tiruppur in by_city
+        ov = requests.get(f"{API}/overview", headers=hdrs).json()
+        tup_ov = next((c for c in ov.get("by_city", []) if c["city"] == "Tiruppur"), None)
+        assert tup_ov is not None
+        assert tup_ov["active_drivers"] >= 1
+        assert tup_ov["vehicles_rented"] >= 1
+
+        # 6. Board + Calendar for varshini
+        board_before = requests.get(f"{API}/board", headers=hdrs, params={"city": "Tiruppur"}).json()
+        today_str = board_before["date"]
+        v_board = next(x for x in board_before["rows"] if x["id"] == varshini["id"])
+        assert v_board["package"] == "Silver Package"
+        assert v_board["expected"] == 800
+
+        y_now, m_now = int(today_str[:4]), int(today_str[5:7])
+        cal = requests.get(
+            f"{API}/drivers/{varshini['id']}/calendar",
+            headers=staff_hdrs,
+            params={"year": y_now, "month": m_now},
+        ).json()
+        assert cal["driver"]["package"] == "Silver Package"
+        assert cal["driver"]["current_vehicle"]["reg_no"] == "TUP001 - hjjhjjhj"
+        assert len(cal["days"]) >= 28
+
+        # 7. Full Payment -> Accounts Approval -> Ledger -> Reports -> Board verification lifecycle
+        tx_r = requests.post(
+            f"{API}/transactions",
+            headers=staff_hdrs,
+            json={
+                "driver_id": varshini["id"],
+                "payment_date": today_str,
+                "amount": 800,
+                "utr": "",
+                "method": "Cash",
+                "remarks": "E2E imported Image1 payment",
+                "vehicle_id": varshini["current_vehicle_id"],
+            },
+        )
+        assert tx_r.status_code == 200, tx_r.text
+        txn = tx_r.json()
+        CREATED["txns"].append(txn["id"])
+
+        appr = requests.post(f"{API}/transactions/{txn['id']}/approve", headers=acc_hdrs)
+        assert appr.status_code == 200, appr.text
+        assert appr.json()["status"] == "approved"
+
+        detail = requests.get(f"{API}/transactions/{txn['id']}", headers=hdrs).json()
+        assert detail["status"] == "approved"
+        assert detail["driver"]["package"] == "Silver Package"
+
+        daily_rep = requests.get(f"{API}/reports/daily", headers=hdrs, params={"date": today_str, "city": "Tiruppur"}).json()
+        assert any(row[0] == txn["id"] for row in daily_rep["rows"])
+
+        ver_rep = requests.get(f"{API}/reports/verified", headers=hdrs, params={"city": "Tiruppur"}).json()
+        assert any(row[0] == txn["id"] for row in ver_rep["rows"])
+
+        board_after = requests.get(f"{API}/board", headers=hdrs, params={"date": today_str, "city": "Tiruppur"}).json()
+        v_after = next(x for x in board_after["rows"] if x["id"] == varshini["id"])
+        assert v_after["status"] == "verified"
+        assert v_after["outstanding"] == 0

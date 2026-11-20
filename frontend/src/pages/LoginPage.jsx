@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, Lock, Phone, ShieldCheck, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ const FEATURES = [
 export default function LoginPage() {
   const { login } = useUser();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,9 +26,14 @@ export default function LoginPage() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
+    const cleaned = mobile.trim();
+    if (cleaned.length !== 10) {
+      setError("Enter a valid 10-digit mobile number");
+      return;
+    }
     setBusy(true);
     try {
-      const u = await login(email.trim(), password);
+      const u = await login(cleaned, password);
       toast.success(`Welcome back, ${u.name}`);
       navigate("/", { replace: true });
     } catch (err) {
@@ -92,7 +97,7 @@ export default function LoginPage() {
             <div className="mb-6">
               <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#15803D]">MyVolt Portal</div>
               <h2 className="mt-1 font-display text-2xl font-bold text-[#101820]">Sign in to your account</h2>
-              <p className="mt-1 text-xs text-[#64748B]">Enter your Route39 work email and password to continue</p>
+              <p className="mt-1 text-xs text-[#64748B]">Enter your registered mobile number and password to continue</p>
             </div>
 
             {error && (
@@ -108,19 +113,22 @@ export default function LoginPage() {
 
             <form onSubmit={submit} className="space-y-4" data-testid="login-form">
               <div className="space-y-1.5">
-                <Label htmlFor="login-email" className="text-xs font-semibold text-[#17212B]">Work Email</Label>
+                <Label htmlFor="login-mobile" className="text-xs font-semibold text-[#17212B]">Mobile Number</Label>
                 <div className="relative">
-                  <Mail className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#94A3B8]" />
+                  <Phone className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#94A3B8]" />
                   <Input
-                    id="login-email"
-                    type="email"
+                    id="login-mobile"
+                    type="tel"
+                    inputMode="numeric"
                     required
-                    autoComplete="email"
-                    placeholder="name@route39.in"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-10 pl-9"
-                    data-testid="login-email"
+                    maxLength={10}
+                    pattern="\d{10}"
+                    autoComplete="tel"
+                    placeholder="Enter 10-digit mobile number"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    className="h-10 pl-9 font-mono"
+                    data-testid="login-mobile"
                   />
                 </div>
               </div>

@@ -169,7 +169,8 @@ export default function VehiclesPage() {
     try {
       const params = { q };
       if (city !== "all") params.city = city;
-      if (["Active", "Maintenance", "Inactive"].includes(status)) params.status = status;
+      if (status !== "all") params.status = status;
+      if (assignment !== "all") params.assignment = assignment;
       params.format = "xlsx";
       const r = await api.get("/vehicles", { params, responseType: "blob" });
       downloadBlob(r.data, `route39_vehicles_${todayIso()}.xlsx`);
@@ -193,7 +194,7 @@ export default function VehiclesPage() {
             </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-vehicles-button">
               <FileUp className="mr-1.5 h-4 w-4" />
-              Import Excel / PDF
+              Import Excel / PDF / Image
             </Button>
             <Button onClick={() => setEdit(null)} data-testid="add-vehicle-button">
               <Plus className="mr-1.5 h-4 w-4" />
@@ -244,7 +245,7 @@ export default function VehiclesPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Vehicle, VIN, ID, city…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="vehicles-search" />
+          <Input placeholder="Search Vehicle, VIN, Driver, ID, city…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="vehicles-search" />
           <Select value={city} onValueChange={setCity}>
             <SelectTrigger className="h-9 w-[160px]" data-testid="vehicles-filter-city">
               <SelectValue />

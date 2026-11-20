@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { api } from "@/lib/api";
 
-export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search driver by name, mobile, Driver ID or Vehicle ID", testId = "driver-search" }) => {
+export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search driver by name, mobile, Driver ID, Vehicle or City", testId = "driver-search" }) => {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState([]);
@@ -58,7 +58,7 @@ export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search d
                       <span className="font-semibold text-foreground">{d.driver_code}</span> · {d.current_vehicle_id || "No vehicle"}{d.vehicle_no ? ` (${d.vehicle_no})` : ""} · {d.mobile}
                     </div>
                   </div>
-                  <span className="text-xs text-muted-foreground">{d.city}</span>
+                  <span className="text-xs text-muted-foreground">{d.package ? `${d.package} · ` : ""}{d.city}</span>
                   {value?.id === d.id && <Check className="h-4 w-4 text-[var(--r39-green)]" />}
                 </CommandItem>
               ))}

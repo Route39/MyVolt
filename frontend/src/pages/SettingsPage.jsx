@@ -50,8 +50,8 @@ const ChangePasswordCard = () => {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters");
+    if (newPassword.length < 4) {
+      toast.error("New password must be at least 4 characters");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -98,10 +98,10 @@ const ChangePasswordCard = () => {
           <Input
             type="password"
             required
-            minLength={6}
+            minLength={4}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Min 6 characters"
+            placeholder="Min 4 characters"
             data-testid="new-password-input"
           />
         </div>
@@ -110,7 +110,7 @@ const ChangePasswordCard = () => {
           <Input
             type="password"
             required
-            minLength={6}
+            minLength={4}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Repeat new password"
@@ -144,7 +144,7 @@ export default function SettingsPage() {
             <div className="grid h-11 w-11 place-items-center rounded-full bg-[#101820] text-sm font-bold text-white">{user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}</div>
             <div>
               <div className="font-semibold">{user.name}</div>
-              <div className="text-xs text-[#64748B]">{user.email} · {ROLE_LABEL[user.role]}</div>
+              <div className="text-xs text-[#64748B]">{user.mobile || user.email} · {ROLE_LABEL[user.role]}</div>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={handleLogout} data-testid="settings-logout-button">
