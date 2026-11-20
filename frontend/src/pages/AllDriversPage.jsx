@@ -126,7 +126,7 @@ export default function AllDriversPage() {
                   <td className="num">{inr(r.daily_rent)}</td>
                   <td className="num">{inr(r.expected)}</td>
                   <td className="num">{r.submitted ? inr(r.submitted) : "—"}</td>
-                  <td className="num font-semibold text-[#15803D]">{r.verified ? inr(r.verified) : "—"}</td>
+                  <td className="num font-semibold text-[#B91C1C]">{r.verified ? inr(r.verified) : "—"}</td>
                   <td className={`num font-semibold ${r.outstanding ? "text-[#B91C1C]" : "text-[#64748B]"}`}>{r.outstanding ? inr(r.outstanding) : "—"}</td>
                   <td><StatusPill status={r.status} testId={`board-status-${r.id}`} /></td>
                   <td className="text-[#64748B]">{r.staff || "—"}</td>

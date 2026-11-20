@@ -30,7 +30,7 @@ export const StatCard = ({ label, value, hint, tone, testId, children }) => (
 
 export const Progress = ({ value, testId }) => (
   <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-[#EEF0F3]" data-testid={testId}>
-    <div className="h-full rounded-full bg-[#16A34A] transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+    <div className="h-full rounded-full bg-[#DC2626] transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
   </div>
 );
 

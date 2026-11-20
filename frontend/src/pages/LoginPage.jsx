@@ -48,20 +48,20 @@ export default function LoginPage() {
       <section className="relative flex flex-col justify-between bg-[#101820] px-6 py-8 text-white sm:px-10 lg:col-span-5 lg:px-12 lg:py-12">
         <div>
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#22C55E] text-[#101820] shadow-sm">
+            <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#DC2626] text-white shadow-sm">
               <Zap className="h-5 w-5 fill-current" />
             </div>
             <div>
               <div className="flex items-center gap-2 font-display text-[17px] font-extrabold tracking-[0.08em]">
                 <span>MYVOLT</span>
-                <span className="rounded bg-[#22C55E]/20 px-1.5 py-0.5 text-[10px] font-bold text-[#22C55E]">EV</span>
+                <span className="rounded bg-[#EF4444]/20 px-1.5 py-0.5 text-[10px] font-bold text-[#EF4444]">EV</span>
               </div>
               <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#7C8A97]">Route39 Mobility Pvt Ltd</div>
             </div>
           </div>
 
           <div className="mt-10 lg:mt-16">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-[#22C55E]/30 bg-[#22C55E]/10 px-3 py-1 text-[11px] font-semibold text-[#22C55E]">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-1 text-[11px] font-semibold text-[#EF4444]">
               <ShieldCheck className="h-3.5 w-3.5" />
               Enterprise Fleet Portal
             </div>
@@ -76,7 +76,7 @@ export default function LoginPage() {
           <div className="mt-8 space-y-4">
             {FEATURES.map(([title, desc]) => (
               <div key={title} className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#22C55E]" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#EF4444]" />
                 <div>
                   <div className="text-[13px] font-semibold text-white">{title}</div>
                   <div className="text-xs text-[#94A3B8]">{desc}</div>
@@ -95,7 +95,7 @@ export default function LoginPage() {
         <div className="w-full max-w-[440px] space-y-4 fade-up">
           <div className="r-card p-6 sm:p-8 shadow-sm">
             <div className="mb-6">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#15803D]">MyVolt Portal</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B91C1C]">MyVolt Portal</div>
               <h2 className="mt-1 font-display text-2xl font-bold text-[#101820]">Sign in to your account</h2>
               <p className="mt-1 text-xs text-[#64748B]">Enter your registered mobile number and password to continue</p>
             </div>
@@ -163,7 +163,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 disabled={busy}
-                className="h-10 w-full bg-[#16A34A] font-semibold text-white hover:bg-[#15803D]"
+                className="h-10 w-full bg-[#DC2626] font-semibold text-white hover:bg-[#B91C1C]"
                 data-testid="login-submit"
               >
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

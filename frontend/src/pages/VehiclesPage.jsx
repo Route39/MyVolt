@@ -221,7 +221,7 @@ export default function VehiclesPage() {
               onClick={() => setCity("all")}
               data-testid="vehicles-city-pill-all"
               className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                city === "all" ? "border-[#15803D] bg-[#F0FDF4] text-[#15803D]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
+                city === "all" ? "border-[#B91C1C] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
               }`}
             >
               All ({rows.length})
@@ -233,7 +233,7 @@ export default function VehiclesPage() {
                 onClick={() => setCity(city === cs.city ? "all" : cs.city)}
                 data-testid={`vehicles-city-pill-${cs.city}`}
                 className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  city === cs.city ? "border-[#15803D] bg-[#F0FDF4] text-[#15803D]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
+                  city === cs.city ? "border-[#B91C1C] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
                 }`}
               >
                 {cs.city} · {cs.count}
@@ -288,14 +288,11 @@ export default function VehiclesPage() {
                 <th>City</th>
                 <th>VIN</th>
                 <th>Rental Ends</th>
-                <th>Daily Rent</th>
-                <th>Details</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {paged.slice.map((v) => {
-                const rent = v.current_driver?.daily_rent || v.daily_rent;
                 const displayStatus = v.status === "Active" ? (v.current_driver ? "rented" : v.rental_status || "available") : v.status;
                 return (
                   <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`}>
@@ -320,8 +317,6 @@ export default function VehiclesPage() {
                     <td>{v.city}</td>
                     <td className="font-mono text-xs">{v.vin || "—"}</td>
                     <td className="font-mono text-xs">{v.rental_ends || "(blank)"}</td>
-                    <td className="font-semibold">{rent ? inr(rent) : "—"}</td>
-                    <td className="max-w-[180px] truncate" title={v.details || v.vehicle_type || ""}>{v.details || v.vehicle_type || "—"}</td>
                     <td className="text-right">
                       <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={() => setAssign(v)} data-testid={`vehicle-assign-${v.vehicle_id}`}>
                         <ArrowLeftRight className="h-4 w-4" />
@@ -335,7 +330,7 @@ export default function VehiclesPage() {
               })}
               {!paged.slice.length && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-muted-foreground">No vehicles found</td>
+                  <td colSpan={7} className="py-8 text-center text-muted-foreground">No vehicles found</td>
                 </tr>
               )}
             </tbody>

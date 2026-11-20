@@ -60,9 +60,9 @@ const ReportBuilder = () => {
       <div className="r-card space-y-0.5 self-start p-1.5" data-testid="report-list">
         {REPORTS.map((r) => (
           <button key={r.id} onClick={() => setKind(r.id)} data-testid={`report-type-${r.id}`}
-            className={`relative block w-full rounded-md px-3 py-2.5 text-left transition-colors ${kind === r.id ? "bg-[#F0FDF4]" : "hover:bg-[#F8FAFB]"}`}>
-            {kind === r.id && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-[#22C55E]" />}
-            <div className={`text-[13px] font-semibold ${kind === r.id ? "text-[#15803D]" : ""}`}>{r.label}</div>
+            className={`relative block w-full rounded-md px-3 py-2.5 text-left transition-colors ${kind === r.id ? "bg-[#FEF2F2]" : "hover:bg-[#F8FAFB]"}`}>
+            {kind === r.id && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-[#EF4444]" />}
+            <div className={`text-[13px] font-semibold ${kind === r.id ? "text-[#B91C1C]" : ""}`}>{r.label}</div>
             <div className="text-[11px] text-muted-foreground">{r.desc}</div>
           </button>
         ))}

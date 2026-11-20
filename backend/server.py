@@ -790,7 +790,7 @@ async def import_template(mode: str = "drivers_and_vehicles", user=Depends(requi
         fname = "myvolt_import_template.xlsx"
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="15803D")
+        c.fill = PatternFill("solid", fgColor="DC2626")
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = max(14, min(32, max(len(str(c.value or "")) for c in col) + 3))
     buf = io.BytesIO()
@@ -1626,7 +1626,7 @@ async def xlsx_response(kind, title, cols, rows, user):
     ws.append(cols)
     for c in ws[4]:
         c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="15803D")
+        c.fill = PatternFill("solid", fgColor="DC2626")
     for r in rows:
         ws.append(r)
     for col in ws.columns:

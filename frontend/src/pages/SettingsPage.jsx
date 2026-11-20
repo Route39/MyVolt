@@ -78,7 +78,7 @@ const ChangePasswordCard = () => {
   return (
     <section className="r-card p-4" data-testid="change-password-card">
       <div className="mb-3 flex items-center gap-2">
-        <KeyRound className="h-4 w-4 text-[#15803D]" />
+        <KeyRound className="h-4 w-4 text-[#B91C1C]" />
         <div className="r-label">Change password</div>
       </div>
       <form onSubmit={submit} className="grid gap-3 sm:grid-cols-3">

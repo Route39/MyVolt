@@ -10,7 +10,7 @@ import { inr, MONTHS } from "@/lib/format";
 
 const Quick = ({ to, icon: Icon, label, hint, testId }) => (
   <Link to={to} data-testid={testId} className="r-card group flex items-center gap-3 px-4 py-3 transition-shadow hover:shadow-md">
-    <div className="grid h-9 w-9 place-items-center rounded-md bg-[#F0FDF4] text-[#15803D]"><Icon className="h-4 w-4" /></div>
+    <div className="grid h-9 w-9 place-items-center rounded-md bg-[#FEF2F2] text-[#B91C1C]"><Icon className="h-4 w-4" /></div>
     <div className="min-w-0 flex-1"><div className="text-[13px] font-semibold">{label}</div><div className="text-xs text-[#64748B]">{hint}</div></div>
     <ArrowRight className="h-4 w-4 text-[#94A3B8] transition-transform group-hover:translate-x-0.5" />
   </Link>
@@ -90,7 +90,7 @@ export default function OverviewPage() {
                       <span className="ml-1 text-xs text-[#64748B]">({c.vehicles_total} total)</span>
                     </td>
                     <td className="num fig">{inr(c.expected)}</td>
-                    <td className="num fig font-semibold text-[#15803D]">{inr(c.verified)}</td>
+                    <td className="num fig font-semibold text-[#B91C1C]">{inr(c.verified)}</td>
                   </tr>
                 ))}
               </tbody>

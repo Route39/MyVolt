@@ -21,7 +21,7 @@ export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search d
       <PopoverTrigger asChild>
         <button
           data-testid={`${testId}-trigger`}
-          className={`flex ${compact ? "h-9 bg-[#F4F6F8] border-transparent" : "h-11 bg-white"} w-full items-center gap-2 rounded-md border px-3 text-left text-[13px] transition-colors hover:border-[#22C55E] focus:outline-none focus:ring-2 focus:ring-ring`}
+          className={`flex ${compact ? "h-9 bg-[#F4F6F8] border-transparent" : "h-11 bg-white"} w-full items-center gap-2 rounded-md border px-3 text-left text-[13px] transition-colors hover:border-[#EF4444] focus:outline-none focus:ring-2 focus:ring-ring`}
         >
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           {value ? (

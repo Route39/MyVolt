@@ -69,7 +69,7 @@ const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit }) => {
       {canVerify && (
         <div className="grid grid-cols-2 gap-2">
           <Button disabled={own} onClick={onApprove} className="h-11 bg-[var(--r39-green)] hover:bg-[var(--r39-green-hover)]" data-testid="approve-payment-button"><Check className="mr-1.5 h-4 w-4" />APPROVE PAYMENT</Button>
-          <Button disabled={own} variant="destructive" onClick={onReject} className="h-11" data-testid="reject-payment-button"><X className="mr-1.5 h-4 w-4" />REJECT PAYMENT</Button>
+          <Button disabled={own} variant="outline" onClick={onReject} className="h-11 border-[#9F1239] text-[#9F1239] hover:bg-[#FFF1F2] hover:text-[#881337]" data-testid="reject-payment-button"><X className="mr-1.5 h-4 w-4" />REJECT PAYMENT</Button>
         </div>
       )}
       {t.status === "rejected" && (user.role === "admin" || own) && (

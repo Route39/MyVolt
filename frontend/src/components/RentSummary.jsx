@@ -20,7 +20,7 @@ export const RentSummary = ({ title, summary, prefix }) => (
       <Row label="Waiting for verification" value={inr(summary.pending)} cls="st-pending" testId={`${prefix}-pending`} />
       <Row
         label="Outstanding rent"
-        value={<span className={summary.outstanding > 0 ? "text-[#B91C1C]" : "text-[#15803D]"}>{inr(summary.outstanding)}</span>}
+        value={<span className={summary.outstanding > 0 ? "text-[#881337]" : "text-[#B91C1C]"}>{inr(summary.outstanding)}</span>}
         strong
         testId={`${prefix}-outstanding`}
       />

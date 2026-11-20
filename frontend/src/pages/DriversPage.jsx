@@ -108,7 +108,7 @@ export default function DriversPage() {
               onClick={() => setCity("all")}
               data-testid="drivers-city-pill-all"
               className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                city === "all" ? "border-[#15803D] bg-[#F0FDF4] text-[#15803D]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
+                city === "all" ? "border-[#B91C1C] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
               }`}
             >
               All ({rows.length})
@@ -120,7 +120,7 @@ export default function DriversPage() {
                 onClick={() => setCity(city === cs.city ? "all" : cs.city)}
                 data-testid={`drivers-city-pill-${cs.city}`}
                 className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  city === cs.city ? "border-[#15803D] bg-[#F0FDF4] text-[#15803D]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
+                  city === cs.city ? "border-[#B91C1C] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#E5E7EB] bg-white text-[#475569] hover:bg-[#F8FAFB]"
                 }`}
               >
                 {cs.city} · {cs.count} · {inr(cs.rentTotal)}

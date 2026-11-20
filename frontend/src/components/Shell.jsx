@@ -35,14 +35,14 @@ const initials = (n) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpp
 
 const Brand = ({ collapsed }) => (
   <div className="flex h-14 items-center gap-2.5 px-3">
-    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#22C55E] text-[#101820] shadow-sm">
+    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#DC2626] text-white shadow-sm">
       <Zap className="h-4 w-4 fill-current" />
     </div>
     {!collapsed && (
       <div className="min-w-0 leading-tight">
         <div className="flex items-center gap-1.5 font-display text-[14px] font-extrabold tracking-[0.08em] text-white">
           <span>MYVOLT</span>
-          <span className="rounded bg-[#22C55E]/20 px-1 py-0.5 text-[9px] font-bold text-[#22C55E]">EV</span>
+          <span className="rounded bg-[#EF4444]/20 px-1 py-0.5 text-[9px] font-bold text-[#EF4444]">EV</span>
         </div>
         <div className="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-[#7C8A97]">Route39 Fleet & Rent</div>
       </div>
@@ -54,11 +54,11 @@ const Item = ({ item, collapsed, onNavigate }) => {
   const Icon = item.icon;
   return (
     <NavLink to={item.to} onClick={onNavigate} data-testid={`nav-${item.id}`} title={collapsed ? item.label : undefined}
-      className={({ isActive }) => `group relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors ${isActive ? "bg-[#22C55E]/[0.12] text-white" : "text-[#A3B0BC] hover:bg-white/[0.05] hover:text-white"} ${collapsed ? "justify-center" : ""}`}>
+      className={({ isActive }) => `group relative flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium transition-colors ${isActive ? "bg-[#EF4444]/[0.12] text-white" : "text-[#A3B0BC] hover:bg-white/[0.05] hover:text-white"} ${collapsed ? "justify-center" : ""}`}>
       {({ isActive }) => (
         <>
-          {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-[#22C55E]" />}
-          <Icon className={`h-[17px] w-[17px] shrink-0 ${isActive ? "text-[#22C55E]" : ""}`} />
+          {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-[#EF4444]" />}
+          <Icon className={`h-[17px] w-[17px] shrink-0 ${isActive ? "text-[#EF4444]" : ""}`} />
           {!collapsed && <span className="truncate">{item.label}</span>}
         </>
       )}
@@ -91,7 +91,7 @@ const SideNav = ({ collapsed, onNavigate }) => {
       <div className="space-y-0.5 border-t border-white/[0.06] px-2.5 py-3">
         {BOTTOM.map((i) => <Item key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}
         <div className={`mt-2 flex items-center gap-2 rounded-md bg-white/[0.04] px-2.5 py-2 ${collapsed ? "justify-center" : ""}`} data-testid="sidebar-user-profile">
-          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#22C55E]/20 text-[11px] font-bold text-[#22C55E]">{initials(user.name)}</div>
+          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#EF4444]/20 text-[11px] font-bold text-[#EF4444]">{initials(user.name)}</div>
           {!collapsed && (
             <div className="min-w-0 flex-1 leading-tight">
               <div className="truncate text-[12.5px] font-semibold text-white">{user.name}</div>
@@ -120,7 +120,7 @@ const UserIdentityPill = () => {
     <div className="flex h-9 items-center gap-2 rounded-md border border-[#E5E7EB] bg-white px-2.5" data-testid="header-user-profile">
       <span className="grid h-6 w-6 place-items-center rounded-full bg-[#101820] text-[10px] font-bold text-white">{initials(user.name)}</span>
       <span className="hidden truncate text-[13px] font-semibold text-[#17212B] sm:inline">{user.name}</span>
-      <span className="rounded bg-[#F0FDF4] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#15803D]" data-testid="role-badge">
+      <span className="rounded bg-[#FEF2F2] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#B91C1C]" data-testid="role-badge">
         {ROLE_LABEL[user.role]}
       </span>
     </div>
