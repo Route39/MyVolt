@@ -1,0 +1,89 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MONTHS, STATUS, inr, todayIso } from "@/lib/format";
+
+const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const LEGEND = [
+  ["none", "No entry"], ["pending", "Pending verification"], ["verified", "Verified"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
+];
+
+export const CalendarLegend = () => (
+  <div className="flex flex-wrap gap-x-4 gap-y-2" data-testid="calendar-legend">
+    {LEGEND.map(([k, l]) => (
+      <span key={k} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className={`${STATUS[k].cls} h-3 w-3 rounded-sm border`} style={{ background: "var(--st-bg)", borderColor: "var(--st-accent)" }} />
+        {l}
+      </span>
+    ))}
+  </div>
+);
+
+const MonthNav = ({ ym, onChange }) => {
+  const years = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 4 + i);
+  const shift = (d) => {
+    const m = ym.m + d;
+    onChange({ y: ym.y + Math.floor(m / 12), m: ((m % 12) + 12) % 12 });
+  };
+  const now = new Date();
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shift(-1)} data-testid="calendar-prev-month"><ChevronLeft className="h-4 w-4" /></Button>
+      <Select value={String(ym.m)} onValueChange={(v) => onChange({ ...ym, m: Number(v) })}>
+        <SelectTrigger className="h-9 w-[130px]" data-testid="calendar-month-select"><SelectValue /></SelectTrigger>
+        <SelectContent>{MONTHS.map((n, i) => <SelectItem key={n} value={String(i)}>{n}</SelectItem>)}</SelectContent>
+      </Select>
+      <Select value={String(ym.y)} onValueChange={(v) => onChange({ ...ym, y: Number(v) })}>
+        <SelectTrigger className="h-9 w-[92px]" data-testid="calendar-year-select"><SelectValue /></SelectTrigger>
+        <SelectContent>{years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+      </Select>
+      <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shift(1)} data-testid="calendar-next-month"><ChevronRight className="h-4 w-4" /></Button>
+      <Button variant="ghost" size="sm" className="h-9 text-[var(--r39-green-text)]" onClick={() => onChange({ y: now.getFullYear(), m: now.getMonth() })} data-testid="calendar-current-month">
+        Today
+      </Button>
+    </div>
+  );
+};
+
+const DayCell = ({ day, onClick, selected }) => {
+  const s = STATUS[day.status];
+  const num = Number(day.date.slice(8));
+  const isToday = day.date === todayIso();
+  return (
+    <button
+      data-testid={`calendar-day-${day.date}`}
+      data-status={day.status}
+      disabled={day.disabled}
+      title={day.reason || s.label}
+      onClick={() => onClick(day)}
+      className={`cal-cell ${s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} relative flex min-h-[58px] flex-col rounded-md p-1.5 text-left sm:min-h-[76px] sm:p-2`}
+    >
+      <div className="flex items-center justify-between">
+        <span className={`text-sm font-semibold ${isToday ? "text-[var(--r39-green-text)]" : ""}`}>{num}</span>
+        {day.status !== "none" && <span className="st-dot h-2 w-2 rounded-full" />}
+      </div>
+      {day.amount > 0 && <span className="mt-auto text-[11px] font-semibold sm:text-sm" data-testid={`calendar-day-amount-${day.date}`}>{inr(day.amount)}</span>}
+      {day.status !== "none" && <span className="hidden text-[10px] font-medium leading-tight sm:block">{s.label}{day.txns.length > 1 ? ` · ${day.txns.length}` : ""}</span>}
+      {day.status === "none" && day.rent_free && <span className="mt-auto text-[10px] font-medium text-muted-foreground">Rent free</span>}
+      {day.status === "none" && day.adjusted && !day.rent_free && <span className="mt-auto text-[10px] font-medium text-[oklch(0.44_0.1_245)]">Adjusted</span>}
+    </button>
+  );
+};
+
+export const RentCalendar = ({ ym, onMonthChange, days, onDayClick, loading, selectedDate }) => {
+  const lead = days.length ? (new Date(`${days[0].date}T00:00:00`).getDay() + 6) % 7 : 0;
+  return (
+    <section className="r-card p-3 sm:p-4" data-testid="rent-calendar">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <h2 className="text-base font-semibold tracking-tight" data-testid="calendar-month-label">{MONTHS[ym.m]} {ym.y}</h2>
+        <MonthNav ym={ym} onChange={onMonthChange} />
+      </div>
+      <div className="mb-4"><CalendarLegend /></div>
+      <div className={`grid grid-cols-7 gap-1 sm:gap-1.5 ${loading ? "opacity-60" : ""}`}>
+        {WEEK.map((w) => <div key={w} className="pb-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{w}</div>)}
+        {Array.from({ length: lead }).map((_, i) => <div key={`l${i}`} />)}
+        {days.map((d) => <DayCell key={d.date} day={d} onClick={onDayClick} selected={d.date === selectedDate} />)}
+      </div>
+    </section>
+  );
+};

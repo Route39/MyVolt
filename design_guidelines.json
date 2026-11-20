@@ -1,0 +1,619 @@
+{
+  "build_now": "Choose the smallest useful set of features from the user's scope that delivers the fastest aha moment through a complete core workflow, honoring explicit user priorities.",
+  "app_metadata": {
+    "name": "Route39 Rent Audit",
+    "type": "Internal Fleet Operations & Accounts ERP",
+    "user_persona": {
+      "primary_actors": [
+        {
+          "role": "Operations Staff (Ground Fleet Coordinators)",
+          "goal": "Record daily driver rent payments quickly with UTR and payment screenshot, track submission status on a calendar, and fix rejected submissions.",
+          "pain_points": [
+            "Manual tracking across WhatsApp receipts creates reconciliation disputes with drivers.",
+            "Missing date mapping where drivers pay lump sums for 3 days or partial payments for 1 day.",
+            "Lack of visibility into why accounts rejected a receipt."
+          ]
+        },
+        {
+          "role": "Accounts Verifier (Accounts Team)",
+          "goal": "Audit submitted bank/UPI receipts side-by-side with bank statement UTRs, approve verified collections, or reject duplicates/fakes with clear operational remarks.",
+          "pain_points": [
+            "Switching back and forth between browser tabs and image viewers breaks focus.",
+            "Duplicate UTR entry by drivers or staff.",
+            "Delayed notifications to ground staff leading to vehicle key release on unverified slips."
+          ]
+        },
+        {
+          "role": "Fleet Operations Admin",
+          "goal": "Oversee rent collection health (expected vs verified vs outstanding), manage driver daily rent contracts, audit staff performance, and export clean accounting reports.",
+          "pain_points": [
+            "Cluttered dashboards with unnecessary charts and accounting jargon.",
+            "Inability to audit who modified or verified a transaction."
+          ]
+        }
+      ],
+      "access_model": "Simple role switcher (Staff, Accounts, Admin) in the top bar without mandatory login redirects, fulfilling explicit user preference."
+    },
+    "regional_conventions": {
+      "country": "India (IN)",
+      "currency_symbol": "₹",
+      "currency_format": "Indian numbering format (e.g., ₹1,200, ₹18,500, ₹1,25,000)",
+      "date_format": "DD MMM YYYY (e.g., 24 Oct 2026)",
+      "payment_rails": ["UPI", "Bank Transfer (NEFT/IMPS)", "Cash"],
+      "reference_code": "UTR (Unique Transaction Reference, 12 digits for UPI / 16-22 chars for IMPS/NEFT)"
+    }
+  },
+  "workflow_architecture": {
+    "primary_workflow": "Calendar-Based Payment Intake & Accounts Audit Gate",
+    "workflow_stages": [
+      {
+        "stage_id": "driver_selection",
+        "actor": "Staff / Accounts / Admin",
+        "trigger": "Driver arrives at fleet hub or sends daily UPI screenshot.",
+        "action": "Search driver by Name, Mobile (10-digit), Vehicle Plate (e.g. DL 1Z B 3901), or Driver ID (R39-DRV-1024). Autocomplete populates live driver info card.",
+        "outcome": "Driver card displays active vehicle, city, joining date, agreed daily rent (e.g. ₹900/day), status badge (Active/Suspended/On Leave), and Month-to-Date Rent Summary."
+      },
+      {
+        "stage_id": "calendar_inspection",
+        "actor": "Staff / Accounts",
+        "trigger": "Driver profile loaded into view.",
+        "action": "Inspect month grid with large clickable date cells. Visual state immediately shows paid, pending, partial, and rejected days.",
+        "guardrails": [
+          "Dates prior to driver's rent start date are disabled with muted pattern and tooltip 'Prior to joining date'.",
+          "Future dates are disabled by default with toggle 'Allow Advance Rent' for verified advance bookings.",
+          "Today's date is subtly highlighted with a Route39 green halo border."
+        ]
+      },
+      {
+        "stage_id": "payment_entry_modal",
+        "actor": "Operations Staff",
+        "trigger": "Clicking an unpaid (White/Grey), partial (Blue), or rejected (Red) date cell.",
+        "action": "Modal opens with auto-populated Driver Name, Vehicle, Selected Date, and Default Daily Rent. Staff inputs Paid Amount (₹), Payment Mode (UPI / Bank Transfer / Cash), 12-digit UTR number (auto-validated against duplicates), optional remarks, and uploads payment screenshot.",
+        "preview_and_feedback": "Inline drag-and-drop receipt preview with thumbnail and replace action. Validation flags invalid UTR format or duplicate UTR previously submitted in the database.",
+        "outcome": "Cell transitions to Orange 'Pending Verification'. Real-time notification badge pushed to Accounts Verification queue."
+      },
+      {
+        "stage_id": "accounts_verification_queue",
+        "actor": "Accounts Team",
+        "trigger": "New pending submissions appear in verification dashboard summary counter.",
+        "action": "Open Accounts Verification tab. Table shows filterable list by city, vehicle, staff, and date. Clicking any row opens split-pane audit drawer.",
+        "inspection_and_decision": "Left pane features high-res screenshot viewer with pan, zoom (100% to 300%), rotate, and fullscreen/download. Right pane displays driver details, entered amount vs daily rent, bank UTR, staff remarks, and previous payment history.",
+        "outcome_branching": {
+          "approve": "Clicking green 'APPROVE PAYMENT' displays single-step confirmation with total credited amount. On confirm, status becomes Green 'Verified', audit log records verifier timestamp, and driver's outstanding balance recalculates.",
+          "reject": "Clicking red 'REJECT PAYMENT' forces mandatory rejection category (Invalid UTR / Amount Mismatch / Blurry Screenshot / Duplicate Entry) and specific operational remarks. System flags date Red 'Rejected' and pushes immediate in-app alert to staff."
+        }
+      },
+      {
+        "stage_id": "rejection_remediation",
+        "actor": "Operations Staff",
+        "trigger": "In-app bell notification: 'Payment rejected for Driver Rajesh Kumar (18 Oct 2026): UTR not matching statement'.",
+        "action": "Staff clicks notification to jump directly to driver calendar on 18 Oct. Clicking the Red cell shows rejection reason, previous slip, and option to 'Upload Corrected Receipt' or 'Re-submit with Corrected UTR'.",
+        "outcome": "Submits updated record back into pending queue with 'Re-submitted' audit tag."
+      }
+    ]
+  },
+  "information_architecture": {
+    "navigation_structure": {
+      "type": "Vertical Sidebar on Desktop, Collapsible Bottom Sheet / Mobile Drawer on Small Viewports",
+      "tradeoff_analysis": {
+        "chosen": "Vertical left sidebar (60px collapsed icons / 240px expanded).",
+        "alternative_evaluated": "Top horizontal navigation bar.",
+        "reason_for_choice": "With 6 distinct destinations (Rent Calendar, Accounts Verification, Payment History, Reports, Driver Management, Staff Management) plus role indicators and notifications, a top bar quickly overcrowds on laptops and conflicts with secondary filters. The vertical sidebar protects vertical scanning space for calendar date cells and dense audit tables, and permits quick role switching without obscuring working data."
+      },
+      "destinations": [
+        {
+          "id": "driver_rent_calendar",
+          "label": "Driver Rent Calendar",
+          "icon": "calendar-days",
+          "roles": ["Staff", "Accounts", "Admin"],
+          "is_default": true,
+          "badge": null
+        },
+        {
+          "id": "accounts_verification",
+          "label": "Accounts Verification",
+          "icon": "clipboard-check",
+          "roles": ["Accounts", "Admin"],
+          "is_default": false,
+          "badge": "live_pending_count"
+        },
+        {
+          "id": "payment_history",
+          "label": "Payment History",
+          "icon": "receipt",
+          "roles": ["Staff", "Accounts", "Admin"],
+          "is_default": false,
+          "badge": null
+        },
+        {
+          "id": "reports",
+          "label": "Reports & Exports",
+          "icon": "file-spreadsheet",
+          "roles": ["Accounts", "Admin"],
+          "is_default": false,
+          "badge": null
+        },
+        {
+          "id": "driver_management",
+          "label": "Driver Management",
+          "icon": "users",
+          "roles": ["Admin"],
+          "is_default": false,
+          "badge": null
+        },
+        {
+          "id": "staff_management",
+          "label": "Staff Management",
+          "icon": "shield-check",
+          "roles": ["Admin"],
+          "is_default": false,
+          "badge": null
+        }
+      ],
+      "global_utility_bar": {
+        "elements": [
+          "Route39 Logo with subtle 'Fleet Rent' moniker",
+          "Role Switcher dropdown (Staff / Accounts / Admin)",
+          "In-app Notification Bell (shows rejection alerts and pending approvals with unread dot)",
+          "Today's Date stamp (e.g. Sat, 24 Oct 2026)"
+        ]
+      }
+    }
+  },
+  "view_specifications": {
+    "view_1_driver_rent_calendar": {
+      "title": "Driver Rent Calendar",
+      "purpose": "Primary operational entry point. Staff and accounts inspect monthly rent completion, review expected vs submitted totals, and submit payments.",
+      "layout_hierarchy": [
+        {
+          "section": "Driver Search & Switcher Bar",
+          "placement": "Top full-width bar above main content",
+          "components": [
+            "Combobox search input with instant keyboard shortcut ('/'): searches by Driver Name, Mobile, Vehicle Reg No, or Driver ID.",
+            "Quick-picks: 3 most recent active drivers for rapid single-click switching.",
+            "Driver Status Pill: 'Active', 'Suspended', or 'Exited'."
+          ]
+        },
+        {
+          "section": "Driver Info & Rent Summary Strip",
+          "placement": "Compact horizontal summary card below search",
+          "fields": [
+            {"label": "Driver", "value": "Rajesh Kumar (R39-DRV-1024)"},
+            {"label": "Mobile", "value": "+91 98765 43210"},
+            {"label": "Assigned Vehicle", "value": "DL 1Z B 3901 (Swift Dzire CNG)"},
+            {"label": "City Hub", "value": "Delhi NCR (Okhla Phase III)"},
+            {"label": "Rent Start Date", "value": "01 Aug 2025"},
+            {"label": "Agreed Daily Rent", "value": "₹900 / day"}
+          ],
+          "rent_summary_kpis": [
+            {"label": "Expected Rent (MTD)", "value": "₹27,900", "tone": "neutral"},
+            {"label": "Submitted", "value": "₹26,100", "tone": "neutral"},
+            {"label": "Verified", "value": "₹24,300", "tone": "positive"},
+            {"label": "Pending Verification", "value": "₹1,800", "tone": "warning"},
+            {"label": "Outstanding / Due", "value": "₹1,800", "tone": "critical"}
+          ]
+        },
+        {
+          "section": "Calendar Controls & Color Legend Bar",
+          "placement": "Directly above monthly grid",
+          "controls": [
+            "Month / Year selector dropdowns (e.g., October 2026)",
+            "Previous Month (<) and Next Month (>) icon buttons",
+            "'Current Month' shortcut button to reset view instantly",
+            "Color Legend Chips with status counts for current month: White/Grey (No Entry - 4), Orange (Pending - 2), Green (Verified - 22), Red (Rejected - 1), Blue (Partial/Adjustment - 2)"
+          ]
+        },
+        {
+          "section": "Monthly Rent Calendar Grid",
+          "placement": "Main workspace, 7-column grid (Mon to Sun)",
+          "cell_design": {
+            "dimensions": "Large clickable square cells (min-height 108px on desktop, min-height 72px on tablet/mobile)",
+            "content": [
+              "Date number in top-left (e.g., '18', font-weight 600, tabular figures)",
+              "Weekday label on header row (Mon, Tue, Wed, Thu, Fri, Sat, Sun)",
+              "Center badge showing entered payment amount (e.g., '₹900' or '₹450 / ₹900' for partial)",
+              "Bottom status label pill with semantic color styling (e.g. 'Verified', 'Pending', 'Rejected', 'Unpaid')",
+              "Method tag icon (UPI / Bank / Cash) when payment exists"
+            ],
+            "interaction_states": {
+              "hover": "Subtle elevation lift (1px) and Route39 green focus border",
+              "click": "Opens 'Add Rent Payment' modal (for unpaid/partial/rejected) or 'View Payment Receipt' modal (for verified/pending)",
+              "disabled": "Dates prior to rent start date and future dates disabled with reduced opacity (35%), no pointer events, and muted hash pattern"
+            }
+          }
+        }
+      ],
+      "responsive_adaptation": {
+        "tablet": "Calendar cells maintain 7 columns with abbreviated weekday names and compact font sizing (12px amounts). Summary strip wraps into 2 rows.",
+        "mobile": "Calendar switches between a compact monthly date-matrix with dot indicators and an accordion daily list view showing date, amount, status pill, and 'Record' button."
+      }
+    },
+    "view_2_payment_entry_modal": {
+      "title": "Add Rent Payment Modal",
+      "purpose": "Focused operational intake sheet for staff to record payment against a specific driver and calendar date.",
+      "layout_hierarchy": [
+        {
+          "section": "Context Header",
+          "items": [
+            "Heading: 'Record Rent Payment'",
+            "Driver Context: Rajesh Kumar (DL 1Z B 3901) • Daily Rent: ₹900",
+            "Target Date: Sat, 24 Oct 2026 (Selected from calendar)"
+          ]
+        },
+        {
+          "section": "Form Fields",
+          "fields": [
+            {
+              "id": "amount_paid",
+              "label": "Rent Amount (₹)",
+              "type": "Number input with ₹ prefix and tabular figures",
+              "default_value": "900 (pre-filled with driver daily rent)",
+              "helper_text": "If driver paid for partial day or multiple days, enter exact amount on receipt."
+            },
+            {
+              "id": "payment_method",
+              "label": "Payment Method",
+              "type": "Segmented pill control: [UPI] [Bank Transfer] [Cash]",
+              "default_value": "UPI"
+            },
+            {
+              "id": "utr_number",
+              "label": "UTR / Transaction Reference",
+              "type": "Text input (uppercase, monospace-capable)",
+              "placeholder": "12-digit UPI Ref or IMPS/NEFT UTR",
+              "validation": "Required for UPI & Bank Transfer; auto-checks for duplicate UTRs across system."
+            },
+            {
+              "id": "screenshot_upload",
+              "label": "Payment Screenshot / Slip",
+              "type": "Dropzone with camera/file picker & instant image preview",
+              "requirements": "PNG, JPG, WEBP up to 5MB. Shows thumbnail with remove / replace icon."
+            },
+            {
+              "id": "staff_remarks",
+              "label": "Remarks / Notes",
+              "type": "Single-line text input",
+              "placeholder": "e.g., Driver paid via brother GPay account / Cash collected at Okhla hub"
+            }
+          ]
+        },
+        {
+          "section": "Modal Actions",
+          "buttons": [
+            {"label": "Cancel", "variant": "secondary", "shortcut": "Escape"},
+            {"label": "Submit for Verification", "variant": "primary_route39_green", "shortcut": "Cmd/Ctrl + Enter"}
+          ]
+        }
+      ],
+      "states": {
+        "duplicate_utr_error": "Red banner: 'UTR 429810394812 was already submitted on 22 Oct 2026 for DL 1Z B 3901. Please verify receipt.'",
+        "submitting": "Button displays spinner with label 'Submitting Receipt...' and locks inputs."
+      }
+    },
+    "view_3_accounts_verification_dashboard": {
+      "title": "Accounts Verification Dashboard",
+      "purpose": "High-throughput reconciliation cockpit for accounts team to verify ground receipts against bank statements.",
+      "layout_hierarchy": [
+        {
+          "section": "KPI Metric Cards (Summary Bar)",
+          "cards": [
+            {"label": "Pending Verification", "value": "14", "amount": "₹12,600", "badge": "Needs Action", "tone": "warning"},
+            {"label": "Approved Today", "value": "38", "amount": "₹34,200", "tone": "positive"},
+            {"label": "Rejected Today", "value": "3", "amount": "₹2,700", "tone": "critical"},
+            {"label": "Total Reconciled MTD", "value": "912", "amount": "₹8,20,800", "tone": "neutral"}
+          ]
+        },
+        {
+          "section": "Filter and Tab Bar",
+          "tabs": [
+            {"label": "Pending", "count": 14, "is_active": true},
+            {"label": "Approved", "count": 38},
+            {"label": "Rejected", "count": 3},
+            {"label": "All Submissions", "count": 55}
+          ],
+          "filters": [
+            "Driver Name / ID search",
+            "Vehicle Plate filter",
+            "City Hub dropdown (Delhi, Noida, Gurgaon)",
+            "Date Range picker",
+            "Staff submitter dropdown",
+            "Clear Filters reset button"
+          ]
+        },
+        {
+          "section": "Compact Submissions Table",
+          "columns": [
+            {"label": "Date", "key": "payment_date", "align": "left", "format": "DD MMM YYYY"},
+            {"label": "Driver", "key": "driver_name", "align": "left", "secondary": "Driver ID & Phone"},
+            {"label": "Vehicle", "key": "vehicle_no", "align": "left"},
+            {"label": "Amount", "key": "amount", "align": "right", "format": "₹ tabular"},
+            {"label": "Mode", "key": "method", "align": "center"},
+            {"label": "UTR Reference", "key": "utr", "align": "left"},
+            {"label": "Submitted By", "key": "staff_name", "align": "left"},
+            {"label": "Slip", "key": "thumbnail", "align": "center"},
+            {"label": "Status", "key": "status", "align": "center"},
+            {"label": "Action", "key": "action_btn", "align": "right"}
+          ],
+          "row_interaction": "Clicking row highlights selection and opens right-side Verification Detail Drawer (or split-screen viewer)."
+        },
+        {
+          "section": "Verification Detail Split Drawer (Audit View)",
+          "trigger": "Row selection in table",
+          "split_ratio": "55% Screenshot Viewer (Left), 45% Metadata & Audit Actions (Right)",
+          "viewer_features": [
+            "High-resolution canvas with pinch-to-zoom, 100% / 200% / Fit toggle",
+            "Rotate 90° button (for sideways driver screenshots)",
+            "Invert colors / enhance contrast toggle (helps read faint transaction slips)",
+            "Download original image button"
+          ],
+          "metadata_features": [
+            "Driver profile thumbnail and active lease terms (Daily Rent: ₹900)",
+            "Entered UTR with 'Copy to clipboard' icon for bank portal matching",
+            "Payment timestamp & Submitting staff info",
+            "Staff remarks callout box",
+            "Previous 3 days payment ledger snippet (helps spot duplicate date entries)"
+          ],
+          "decision_actions": [
+            {
+              "id": "btn_approve",
+              "label": "Approve Payment",
+              "style": "Solid Green (Route39 primary)",
+              "dialog": "Confirms amount ₹900 credited for 24 Oct 2026. Action completes with single confirmation."
+            },
+            {
+              "id": "btn_reject",
+              "label": "Reject Payment",
+              "style": "Solid Red (Critical)",
+              "dialog": "Requires mandatory Rejection Reason dropdown [UTR Not Found in Bank, Amount Mismatch, Blurry / Unreadable Slip, Duplicate Submission, Old Date Receipt] plus mandatory staff note."
+            }
+          ]
+        }
+      ],
+      "responsive_adaptation": {
+        "tablet": "Split drawer becomes a stacked modal with receipt viewer on top and audit actions fixed at bottom.",
+        "mobile": "Table switches to card list; tapping a card opens full-screen audit sheet."
+      }
+    },
+    "view_4_payment_history": {
+      "title": "Payment History Ledger",
+      "purpose": "Complete searchable and filterable transactional audit trail for staff and accounts.",
+      "key_elements": [
+        "Global search across driver, UTR, vehicle, and receipt ID",
+        "Multi-select filters by status, payment mode, city, and date ranges",
+        "Compact data table with sticky headers and pagination (50 per page)",
+        "Clicking any entry opens read-only receipt card with full verification history"
+      ]
+    },
+    "view_5_reports_and_export": {
+      "title": "Operational Reports & Excel Export",
+      "purpose": "One-click financial summaries and downloadable spreadsheets without complex analytics clutter.",
+      "report_categories": [
+        {"id": "daily_collection", "title": "Daily Hub Collection Report", "desc": "Total verified vs pending rent collected across all city hubs for selected date."},
+        {"id": "pending_audit", "title": "Pending Verification Aging Report", "desc": "Receipts pending verification for >24h or >48h."},
+        {"id": "rejected_audit", "title": "Rejected Payment Log", "desc": "All rejected receipts with staff submitter and audit rejection reasons."},
+        {"id": "driver_ledger", "title": "Driver Rent History & Defaulter List", "desc": "Driver-wise expected vs paid vs outstanding balance."},
+        {"id": "staff_performance", "title": "Staff Entry Audit", "desc": "Receipts logged per coordinator with approval and rejection ratios."}
+      ],
+      "export_action": {
+        "format": "Excel (.xlsx) and CSV",
+        "label": "Export Report to Excel",
+        "feedback": "Instant file download with toast notification: 'Report exported successfully (512 rows).'"
+      }
+    },
+    "view_6_driver_management_admin": {
+      "title": "Driver Management (Admin Only)",
+      "purpose": "Create and update driver profiles, daily rent contracts, and vehicle assignments.",
+      "key_elements": [
+        "Drivers table with Name, Driver ID, Mobile, Vehicle Plate, City Hub, Daily Rent (₹), Joining Date, and Status",
+        "'Add New Driver' slide-out drawer with validation",
+        "Inline edit for Daily Rent rate changes with effective date picker"
+      ]
+    },
+    "view_7_staff_management_admin": {
+      "title": "Staff Management & Audit Log (Admin Only)",
+      "purpose": "Manage fleet coordinators and accounts audit team, inspect system-wide activity log.",
+      "key_elements": [
+        "Staff list with assigned role (Operations Staff, Accounts Verifier, Admin) and active hub",
+        "Audit Log stream: Timestamp, Actor, Event (e.g. 'Approved Payment #4029', 'Edited Daily Rent for R39-DRV-1024'), IP Address"
+      ]
+    }
+  },
+  "states_and_feedback": {
+    "loading_states": {
+      "calendar": "Skeleton grid showing 35 muted pulsed cells with skeleton header",
+      "table": "5-row skeleton table with shimmering bars preserving column widths",
+      "receipt_viewer": "Centered spinner with label 'Loading high-resolution payment slip...'"
+    },
+    "empty_states": {
+      "no_driver_selected": {
+        "icon": "user-search",
+        "heading": "Search or Select a Driver",
+        "description": "Enter driver name, mobile number, vehicle number, or driver ID above to load rent calendar."
+      },
+      "verification_queue_cleared": {
+        "icon": "check-circle-2",
+        "heading": "All Caught Up!",
+        "description": "There are no pending payments awaiting verification. Great job!"
+      },
+      "no_search_results": {
+        "icon": "search-x",
+        "heading": "No matching payments found",
+        "description": "Try adjusting your filters or date range."
+      }
+    },
+    "error_and_validation": {
+      "duplicate_utr": "Inline warning under UTR field with red highlight and link to view existing payment.",
+      "network_failure": "Persistent bottom toast with 'Retry Submission' button and preserved form draft.",
+      "mandatory_rejection_remarks": "Shakes remark textarea with message 'Please provide clear remarks for ground staff remediation.'"
+    },
+    "notifications": {
+      "types": [
+        {
+          "type": "rejection_alert",
+          "trigger": "Accounts team rejects a payment",
+          "recipient": "Submitting Staff Coordinator",
+          "message": "Payment rejected for Rajesh Kumar (DL 1Z B 3901) for 18 Oct: UTR mismatch. Tap to fix."
+        },
+        {
+          "type": "verification_pushed",
+          "trigger": "Staff enters new payment",
+          "recipient": "Accounts Queue",
+          "message": "New receipt submitted for DL 1Z B 3901 (₹900)."
+        }
+      ]
+    }
+  },
+  "design_system": {
+    "visual_direction_choice": {
+      "selected_direction": "Direction A: Route39 Operational Clarity",
+      "rationale": "Internal fleet operations teams in fast-paced hub environments demand high legibility under varying lighting conditions, neutral surfaces to prevent eye strain during 8-hour data reconciliation, and crisp semantic status signals. Direction A pairs an ultra-clean white canvas with warm charcoal typography and vibrant Route39 green accents, strictly avoiding decorative noise or accounting jargon.",
+      "alternative_considered": "Direction B: Dense Dark Ops Console",
+      "rejection_reason": "Dark mode consoles reduce legibility when reading scanned paper receipts and mobile screenshots with white backgrounds, causing glare and eye fatigue during photo auditing."
+    },
+    "typography": {
+      "font_family": "IBM Plex Sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      "font_family_monospace": "'IBM Plex Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace",
+      "font_selection_reason": "IBM Plex Sans delivers a sober, humanist, slightly narrow industrial character designed for high-density logistics and financial ERPs. It features rock-solid tabular figures (tnum) essential for Indian rupee amounts, dates, and vehicle numbers.",
+      "scale": {
+        "caption": {"size": "11px", "line_height": "14px", "weight": "500", "letter_spacing": "0.02em", "role": "Status pills, column headers, micro-labels"},
+        "body_sm": {"size": "13px", "line_height": "18px", "weight": "400", "letter_spacing": "0", "role": "Table cells, secondary info, helper text"},
+        "body": {"size": "14px", "line_height": "20px", "weight": "400", "letter_spacing": "0", "role": "Standard inputs, body text, modal descriptions"},
+        "body_medium": {"size": "14px", "line_height": "20px", "weight": "500", "letter_spacing": "0", "role": "Row primary field, driver name, active tab"},
+        "subheading": {"size": "16px", "line_height": "22px", "weight": "600", "letter_spacing": "-0.005em", "role": "Section headers, card titles, calendar month label"},
+        "heading_modal": {"size": "18px", "line_height": "24px", "weight": "600", "letter_spacing": "-0.01em", "role": "Modal headers, audit drawer title"},
+        "heading_page": {"size": "22px", "line_height": "28px", "weight": "600", "letter_spacing": "-0.015em", "role": "Page titles, top-level KPI metrics"}
+      }
+    },
+    "color_palette_oklch": {
+      "surfaces": {
+        "bg_canvas": "oklch(1.0 0 0)",
+        "bg_surface": "oklch(0.985 0.003 250)",
+        "bg_surface_alt": "oklch(0.965 0.005 250)",
+        "bg_muted": "oklch(0.94 0.006 250)",
+        "bg_overlay": "oklch(0.2 0.01 250 / 0.45)"
+      },
+      "borders": {
+        "border_subtle": "oklch(0.88 0.005 250)",
+        "border_strong": "oklch(0.75 0.01 250)",
+        "border_interactive": "oklch(0.58 0.15 142)"
+      },
+      "text": {
+        "text_primary": "oklch(0.22 0.015 250)",
+        "text_secondary": "oklch(0.44 0.02 250)",
+        "text_tertiary": "oklch(0.58 0.02 250)",
+        "text_inverse": "oklch(1.0 0 0)"
+      },
+      "brand_primary": {
+        "route39_green": "oklch(0.58 0.15 142)",
+        "route39_green_hover": "oklch(0.52 0.16 142)",
+        "route39_green_text": "oklch(0.42 0.13 142)",
+        "route39_green_bg": "oklch(0.96 0.03 142)"
+      },
+      "calendar_status_colors": {
+        "no_entry": {
+          "label": "White/Grey (No Entry)",
+          "cell_bg": "oklch(1.0 0 0)",
+          "cell_border": "oklch(0.88 0.005 250)",
+          "text_color": "oklch(0.44 0.02 250)",
+          "pill_bg": "oklch(0.95 0.005 250)"
+        },
+        "pending_verification": {
+          "label": "Orange (Pending Verification)",
+          "cell_bg": "oklch(0.96 0.018 55)",
+          "cell_border": "oklch(0.78 0.10 52)",
+          "accent_color": "oklch(0.64 0.14 52)",
+          "text_color": "oklch(0.46 0.12 50)",
+          "pill_bg": "oklch(0.93 0.03 52)"
+        },
+        "verified": {
+          "label": "Green (Verified)",
+          "cell_bg": "oklch(0.96 0.03 142)",
+          "cell_border": "oklch(0.76 0.11 142)",
+          "accent_color": "oklch(0.58 0.15 142)",
+          "text_color": "oklch(0.42 0.13 142)",
+          "pill_bg": "oklch(0.92 0.05 142)"
+        },
+        "rejected": {
+          "label": "Red (Rejected)",
+          "cell_bg": "oklch(0.96 0.015 25)",
+          "cell_border": "oklch(0.78 0.12 25)",
+          "accent_color": "oklch(0.54 0.18 25)",
+          "text_color": "oklch(0.44 0.15 25)",
+          "pill_bg": "oklch(0.92 0.04 25)"
+        },
+        "partial_or_adjustment": {
+          "label": "Blue (Partial / Adjustment)",
+          "cell_bg": "oklch(0.96 0.015 245)",
+          "cell_border": "oklch(0.78 0.08 245)",
+          "accent_color": "oklch(0.58 0.12 245)",
+          "text_color": "oklch(0.44 0.08 245)",
+          "pill_bg": "oklch(0.92 0.03 245)"
+        }
+      }
+    },
+    "spacing_and_density": {
+      "base_unit": "4px",
+      "scale": {
+        "space_1": "4px",
+        "space_2": "8px",
+        "space_3": "12px",
+        "space_4": "16px",
+        "space_5": "20px",
+        "space_6": "24px",
+        "space_8": "32px"
+      },
+      "radius": {
+        "subtle": "4px",
+        "default": "6px",
+        "card": "8px",
+        "pill": "9999px"
+      },
+      "table_density": "Compact (36px row height, 8px vertical padding, 12px horizontal padding) for scanning large batches of transactions without excessive scrolling.",
+      "calendar_density": "Generous touch targets (108px x 108px min cell area on desktop) to enable error-free clicking during high-volume data entry."
+    }
+  },
+  "implementation_notes_for_builder": {
+    "recommended_component_architecture": [
+      "DriverAutocomplete: Search input with dropdown portal, keyboard navigation (up/down/enter), and debounce (150ms).",
+      "MonthlyCalendar: Clean grid computation with day-of-week headers, previous/next month filler cells, and status styling hooks.",
+      "PaymentModal: Accessible dialog with focus trap, Esc to close, and form state reset on exit.",
+      "ScreenshotViewer: Zoom/pan container utilizing CSS transform scale and translate, rotate 90deg, and image fit toggle.",
+      "RoleSwitcher: Dropdown in header setting React state or localStorage key 'route39_active_role'."
+    ],
+    "sample_seed_drivers": [
+      {
+        "driver_id": "R39-DRV-1024",
+        "name": "Rajesh Kumar",
+        "mobile": "+91 98765 43210",
+        "vehicle": "DL 1Z B 3901",
+        "vehicle_model": "Maruti Swift Dzire CNG",
+        "city": "Delhi NCR",
+        "joining_date": "01 Aug 2025",
+        "daily_rent": 900,
+        "status": "Active"
+      },
+      {
+        "driver_id": "R39-DRV-1088",
+        "name": "Amit Sharma",
+        "mobile": "+91 98112 34567",
+        "vehicle": "UP 16 CD 4421",
+        "vehicle_model": "Hyundai Aura CNG",
+        "city": "Noida",
+        "joining_date": "15 Sep 2025",
+        "daily_rent": 950,
+        "status": "Active"
+      },
+      {
+        "driver_id": "R39-DRV-1102",
+        "name": "Suresh Yadav",
+        "mobile": "+91 99554 11223",
+        "vehicle": "HR 26 DQ 8802",
+        "vehicle_model": "Tata Tigor EV",
+        "city": "Gurgaon",
+        "joining_date": "10 Oct 2025",
+        "daily_rent": 1100,
+        "status": "Active"
+      }
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 3 (UI/UX redesign regression + new dashboards). Backend: new pytest suite test_redesign_dashboards.py, 22/22 passing. It covers /api/board (KPIs match the rows, date, city/q/status/active filters, sort, pagination, xlsx, invalid date 400, no-user 401/403), /api/overview (14-day series ending 2026-11-20, outstanding = expected - verified, pending count matches accounts summary), /api/transactions (old list mode still works, paged {items,total} with no overlap between pages, amount sort, date range + status, q search, xlsx), all 6 reports plus the city filter, xlsx export and staff 403, and the core flow (staff submit with upload -> board shows pending -> staff cannot approve (403) -> accounts approve -> board shows verified; reject with empty remarks 422 -> notification -> resubmit -> pending -> audit trail). Frontend (Playwright, 1920 and 390): every sidebar nav item routes and the header title updates. Role visibility is correct (staff sees only Overview/All Drivers/Calendar/Ledger + Settings/Help). Collapse works (236->68px) and survives a reload. Default landing is admin->/overview, staff->/board, accounts->/verification. The Overview KPIs and recharts trend render. All Drivers: date prev/next/picker/Today work (Today is disabled on today), the URL ?date syncs, the 8 KPIs show and change with the date and city filter, search, city/status/active filters and the staff options work, sort-daily_rent desc is correct, board-export downloads route39_all_drivers_<date>.xlsx, and a row click opens /calendar?driver=..&month=... Global search opens the driver's calendar. Core UI flow on Karthik Raja: staff adds payments on 15 and 16 Nov (vehicle select CHN-002, amount, UTR, screenshot preview) -> cells turn Pending and a toast shows. A future date (25 Nov) does not open a dialog. Accounts: summary cards, sort-amount asc/desc, pager on the All tab (25/43 -> page 2). Screenshot viewer: zoom in 150%, zoom out 125%, fit 100%, fullscreen (DIV), download of TXN-xxx_UTR.png. Approve confirmation -> cell Verified. Reject is disabled until remarks are entered -> reason shown -> staff notification -> Correct & Resubmit dialog with the rejection banner -> cell Pending. Ledger: pager, ledger-search, driver search plus clear, From/To popover calendars (shadcn), status/city/staff filters, Clear, sort, ledger-export xlsx, row -> detail with audit trail. Reports: KPIs and chart, all 6 report previews, report-city (verified 24 -> Chennai 1), export, admin Audit Log tab. Management: drivers search/city/status filters, add + edit dialogs; vehicles search/status filter, add + edit dialogs; staff role filter + search + add dialog; all pagers render. Settings: profile card, admin rule switches present, hidden for staff. Help renders. At 390px there is no horizontal overflow on overview/board/calendar/history/settings/help, the mobile sheet navigates and closes, and the payment dialog fits the screen. No functional regressions found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/board", "issue": "kpis.verified sums verified amounts over all rows (including drivers who are not eligible, e.g. inactive or before rent start), while kpis.expected/outstanding use eligible rows only. This can make the collected % inconsistent. KPIs also ignore the status/staff_id filters but apply the q/city/active filters. That may be intentional; please document or align."},
+      {"endpoint": "GET /api/board", "issue": "Every call loads all drivers and the day's transactions and paginates in Python. Fine at 8 drivers, but it will not scale to large fleets."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Reports & Analytics > report filters", "issues": ["The 'From'/'To' labels sit inline at the bottom-left of the date buttons, while the 'City' label sits above its select. The alignment is inconsistent.", "Grammar: '· 1 rows'."]},
+      {"screen": "Header at 390px", "issues": ["The global driver search (md:block) and page title (sm:block) are hidden on mobile, so mobile users have no global search. Consider adding a search icon button that opens the search."]},
+      {"screen": "Payment Ledger", "issues": ["Some seeded Cash rows show the screenshot icon (they have a file_id). This is data, not code, but it may confuse users."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_redesign_dashboards.py", "/app/test_reports/pytest/iteration3_results.xml"],
+  "action_items": [
+    "Optional: align /api/board kpis.verified to eligible drivers (or document it)",
+    "Optional: fix the From/To label alignment and the '1 rows' pluralisation on the Reports filters",
+    "Optional: give mobile users a way to reach global driver search"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1104 lines. Consider splitting it into routers (transactions, reports, dashboards, drivers/vehicles).",
+    "Transaction ids use count + random % 1000 plus a collision loop. That works, but uuid/sequence counters would be cleaner.",
+    "Board/overview load whole collections into memory (to_list(20000/200000)). Use aggregation when the fleet grows.",
+    "Driver/Vehicle/Staff management paginate client-side (usePaged), while the board and ledger paginate server-side. That is acceptable at the current size."
+  ],
+  "updated_files": ["/app/backend/tests/test_redesign_dashboards.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% of tested flows"},
+  "seed_data_creation": "None left behind. The pytest suite created TXNs on 2026-11-12/13 for Karthik Raja (R39-DRV-1007) and auto-deleted them, together with their files, notifications and audit entries. The UI tests created TXN-100196 (15 Nov, approved) and TXN-100842 (16 Nov, rejected->resubmitted) for Karthik Raja; I deleted both, with their file records, 1 notification and 5 audit entries. Karthik is back to 0 transactions. The screenshot objects stay in object storage, unreferenced. The audit log still contains 'Report exported' entries from my export tests (board/ledger/verified/pending). No drivers, vehicles, users or settings were changed. Note: TXN-100278 (Deepak Yadav, 2026-11-01, ₹800, UTR 123456, entered by Anita Rao at 13:32 UTC) was NOT created by me. It looks like customer or main-agent activity and was left untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_redesign_dashboards.py -p no:xdist -o addopts=''. It is self-cleaning and uses Karthik R39-DRV-1007 on 2026-11-12/13 with vehicle CHN-002. The calendar API needs year=&month= ints. UI testids: board-row-<id>, board-status-<id>, kpi-*, sort-<key>, <pager>-prev/next (board-pager, ledger-pager, verification-pager, drivers-pager, vehicles-pager, users-pager), verification-table-row-<txn>, history-table-row-<txn>, notification-bell / notification-item-<id>, report-type-<kind>. Radix select options: use get_by_role('option', name=..., exact=True), because 'Active only' also matches 'Inactive only'. Close an open select before clicking the global search (the overlay intercepts the click). The customer is active in the preview, so do not touch real records."
+}

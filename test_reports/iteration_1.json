@@ -1,0 +1,47 @@
+{
+  "summary": "First full run of Route39 Rent Audit, backend and frontend. Backend: 27 pytest tests, 25 pass. Two failures: (1) the calendar returns 500 when given an invalid month; (2) segregation-of-duties gap: an admin can correct (or resubmit) a staff payment and then approve the changed amount themselves. Frontend: every requested flow passed at 1920px and 390px. Flows covered: staff driver search by name, mobile, vehicle (with or without spaces) and ID; calendar disabled dates (before rent start and future), legend, prev/next and current-month; ADD RENT PAYMENT with PNG upload, preview and toast 'Pending Accounts Verification', cell goes pending; duplicate UTR error in the split dialog. Accounts: summary counts, 4 tabs, filters, detail page with screenshot zoom and download, approval confirmation text, cell goes verified; reject needs remarks, cell goes rejected; staff gets a notification and can Correct & Resubmit from the day dialog (audit records the amount, UTR and screenshot changes). Admin: approve and reject are disabled on own entry with an info note; Driver add/edit/adjustment, rent rules shown, Staff add/edit/deactivate (inactive user drops out of the switcher), all 6 reports preview plus Excel export, Audit Log tab. Payment History page and filters; 390px layout with no horizontal overflow. No JS page errors.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/transactions/{id}/approve (after PUT /correct or PUT /resubmit by admin)", "issue": "Segregation-of-duties gap. The self-approval check compares only submitted_by. An admin who corrects an approved staff payment (e.g. ₹500 → ₹900) or resubmits a rejected one can then approve their own change (returns 200). Test: tests/test_rent_audit_sod.py. Fix: record last_modified_by (and corrected_by/resubmitted_by) and block approve/reject when it equals the acting user.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/drivers/{id}/calendar?month=13", "issue": "Returns 500 (ValueError: month must be in 1..12). Add Query(ge=1, le=12) for month and a sane range for year."},
+      {"endpoint": "POST /api/transactions/{id}/approve and /reject", "issue": "Race condition. approve runs update_one with a status=pending filter but never checks matched_count, so the audit entry is written even if a concurrent reject won. reject's update has no status filter at all, so it can overwrite a concurrent approval. Check the result of an atomic find_one_and_update."},
+      {"endpoint": "GET /api/reports/staff_performance", "issue": "Lists inactive staff users (e.g. deactivated TEST_User2) with 0 rows; consider filtering active or marking them."},
+      {"endpoint": "Transaction ID generation", "issue": "id = TXN-(100001 + count + random%1000) is non-sequential and collision-prone (a retry loop exists). Use an atomic counter."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Calendar page payment history table (desktop 1920px)", "issues": ["The STATUS column is clipped ('Pending Vi…') and the table scrolls horizontally inside the right column; reduce columns or allow wrapping"]},
+      {"screen": "Verification filters, Reports From/To, Driver form joining/handover/rent-start, Adjustment date, History filters", "issues": ["Uses the browser's native <input type=date> (mm/dd/yyyy) instead of a shadcn Calendar/Popover date picker; 9 occurrences"]},
+      {"screen": "Calendar page mobile 390px", "issues": ["The driver card and two summary cards come before the calendar, so staff must scroll about 1.5 screens to reach the calendar used by the primary flow; consider putting the calendar first on mobile (order-first currently only applies on xl)"]},
+      {"screen": "Transaction detail audit trail", "issues": ["'Screenshot replaced' shows raw file UUIDs (prev → new); show 'Old screenshot → New screenshot' or thumbnails instead"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_rent_audit_api.py", "/app/backend/tests/test_rent_audit_sod.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "HIGH: Block approve/reject when the acting user last corrected or resubmitted the transaction (track last_modified_by), not only when submitted_by matches",
+    "Validate the calendar month/year query params (avoid the 500)",
+    "Make approve/reject atomic (find_one_and_update with status=pending) and return 409 if the state already changed",
+    "Fix the clipped Status column in the calendar-page payment history table",
+    "Replace native date inputs with the shadcn date picker",
+    "Mobile: show the calendar before the summary cards on the calendar page"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 746 lines (over the 700-line guideline); split into routers (drivers, transactions, reports, users)",
+    "VerificationPage/HistoryPage api.get calls have no .catch or error state; a failed request leaves stale rows with no feedback",
+    "GET /api/transactions and /api/accounts/summary are open to every role, including staff, who can read all drivers' transactions; confirm this is intended",
+    "list_staff (/api/users/staff) includes inactive users",
+    "Calendar year dropdown is based on the browser clock (new Date()) while the backend uses IST; edge case near midnight or year boundary"
+  ],
+  "updated_files": ["/app/backend/tests/test_rent_audit_api.py", "/app/backend/tests/test_rent_audit_sod.py"],
+  "success_rate": {"backend": "93% (25/27)", "frontend": "100% of requested flows (4 design issues)"},
+  "seed_data_creation": "Created and NOT deletable (no delete endpoint): TEST_ drivers R39-DRV-1009 (TEST_Driver), R39-DRV-1010 (TEST_UI Driver), plus a TEST_SOD driver from each SOD test run; TEST_ users (TEST_User2, TEST_UI Staff Edited; both deactivated); test transactions with UTRs prefixed TESTUTR/TESTUI/TESTREJ/TESTFIX/TESTSOD. On seeded drivers: R39-DRV-1007 has TXN-100355 (2026-11-12, approved by u-acc-1) and TXN-100726 (2026-11-13, rejected then resubmitted, pending). R39-DRV-1008 has a cash TXN-100650 on 2026-11-18 entered by u-admin (pending). Notifications were created for u-staff-1 by the rejections.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "No login; set localStorage r39_user to a user ID, or send the X-User-Id header to the API. Run pytest with -n 0 (module fixture creates a TEST_ driver). Server date is 2026-11-20 IST. R39-DRV-1007 now has entries on 11-12/11-13 and 1008 on 11-18; use other dates or new TEST_ drivers. All UI testids work as listed in the request; report driver picker = report-driver-search-*, history = history-driver-search-*.",
+  "rca of the issue": "SOD gap: approve_txn/reject_txn compare only t['submitted_by'] with user['id']. correct_txn (admin) and resubmit_txn (admin is allowed) change amount/UTR but leave submitted_by unchanged and store no modifier field. The modifying admin is therefore treated as an independent verifier. Repro: staff submits → acc approves → admin PUT /correct amount=900 → admin POST /approve → 200. Mitigation: set last_modified_by on correct/resubmit and include it in the self-check. Calendar 500: date(year, month, 1) runs on unvalidated ints."
+}
