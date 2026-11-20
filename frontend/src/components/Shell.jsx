@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
+import { toast } from "sonner";
+import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -67,7 +68,12 @@ const Item = ({ item, collapsed, onNavigate }) => {
 };
 
 const SideNav = ({ collapsed, onNavigate }) => {
-  const { user, hasRole } = useUser();
+  const { user, hasRole, logout } = useUser();
+  const handleLogout = async () => {
+    if (onNavigate) onNavigate();
+    await logout();
+    toast.success("Signed out");
+  };
   return (
     <div className="flex h-full flex-col bg-[#151F27]">
       <Brand collapsed={collapsed} />
@@ -85,9 +91,25 @@ const SideNav = ({ collapsed, onNavigate }) => {
       </nav>
       <div className="space-y-0.5 border-t border-white/[0.06] px-2.5 py-3">
         {BOTTOM.map((i) => <Item key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />)}
-        <div className={`mt-2 flex items-center gap-2.5 rounded-md bg-white/[0.04] px-2.5 py-2 ${collapsed ? "justify-center" : ""}`} data-testid="sidebar-user-profile">
+        <div className={`mt-2 flex items-center gap-2 rounded-md bg-white/[0.04] px-2.5 py-2 ${collapsed ? "justify-center" : ""}`} data-testid="sidebar-user-profile">
           <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#22C55E]/20 text-[11px] font-bold text-[#22C55E]">{initials(user.name)}</div>
-          {!collapsed && <div className="min-w-0 leading-tight"><div className="truncate text-[12.5px] font-semibold text-white">{user.name}</div><div className="text-[11px] text-[#7C8A97]">{ROLE_LABEL[user.role]}</div></div>}
+          {!collapsed && (
+            <div className="min-w-0 flex-1 leading-tight">
+              <div className="truncate text-[12.5px] font-semibold text-white">{user.name}</div>
+              <div className="text-[11px] text-[#7C8A97]">{ROLE_LABEL[user.role]}</div>
+            </div>
+          )}
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Sign out"
+              className="rounded p-1 text-[#7C8A97] transition-colors hover:bg-white/[0.08] hover:text-white"
+              data-testid="sidebar-logout-button"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -122,11 +144,16 @@ const UserSwitcher = () => {
 export const Shell = () => {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(localStorage.getItem("r39_nav") === "1");
+  const { logout } = useUser();
   const { pathname } = useLocation();
   const nav = useNavigate();
   const all = [...SECTIONS.flatMap((s) => s.items), ...BOTTOM];
   const title = all.find((n) => pathname.startsWith(n.to))?.label || TITLES[`/${pathname.split("/")[1]}`] || "";
   const toggle = () => { localStorage.setItem("r39_nav", collapsed ? "0" : "1"); setCollapsed(!collapsed); };
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Signed out");
+  };
   return (
     <div className="min-h-screen bg-[#F4F6F8]">
       <aside className={`fixed inset-y-0 left-0 z-40 hidden transition-[width] duration-200 lg:block ${collapsed ? "w-[68px]" : "w-[236px]"}`} data-testid="sidebar">
@@ -151,6 +178,9 @@ export const Shell = () => {
           <div className="ml-auto flex items-center gap-1.5 md:ml-2">
             <NotificationBell />
             <UserSwitcher />
+            <Button variant="ghost" size="icon" className="h-9 w-9 text-[#64748B] hover:text-[#17212B]" onClick={handleLogout} title="Sign out" data-testid="logout-button">
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </header>
         <main className="mx-auto max-w-[1520px] px-3 py-5 sm:px-6">

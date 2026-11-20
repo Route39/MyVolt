@@ -2,10 +2,16 @@ import io
 import random
 import uuid
 import asyncio
+import bcrypt
 from datetime import datetime, timedelta, timezone, time
 from PIL import Image, ImageDraw, ImageFont
 
 IST = timezone(timedelta(hours=5, minutes=30))
+DEFAULT_PASSWORD = "route39@123"
+
+
+def hash_pw(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 USERS = [
     {"id": "u-admin", "name": "Anita Rao", "email": "anita.admin@route39.in", "role": "admin"},
@@ -64,8 +70,9 @@ async def seed(db, put_object, app_name):
         return
     rnd = random.Random(39)
     now = datetime.now(timezone.utc).isoformat()
+    default_hash = hash_pw(DEFAULT_PASSWORD)
     for u in USERS:
-        await db.users.insert_one({**u, "active": True, "created_at": now})
+        await db.users.insert_one({**u, "active": True, "password_hash": default_hash, "created_at": now})
     await db.settings.update_one({"id": "global"}, {"$set": {
         "id": "global", "allow_future_dates": False, "allow_multiple_per_date": False, "delayed_days": 1}}, upsert=True)
 

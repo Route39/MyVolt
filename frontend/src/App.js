@@ -4,6 +4,7 @@ import { Loader2, Lock } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { UserProvider, useUser } from "@/context/UserContext";
 import { Shell as AppShell } from "@/components/Shell";
+import LoginPage from "@/pages/LoginPage";
 import CalendarPage from "@/pages/CalendarPage";
 import VerificationPage from "@/pages/VerificationPage";
 import TransactionDetailPage from "@/pages/TransactionDetailPage";
@@ -31,10 +32,24 @@ const Guard = ({ roles, children }) => {
 };
 
 const Shell = () => {
-  const { user } = useUser();
-  if (!user) return <div className="grid min-h-screen place-items-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  const { user, loading } = useUser();
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[#F4F6F8]">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="*" element={<LoginPage />} />
+      </Routes>
+    );
+  }
   return (
     <Routes key={user.id}>
+      <Route path="/login" element={<Navigate to="/" replace />} />
       <Route element={<AppShell />}>
         <Route path="/" element={<Navigate to={{ accounts: "/verification", staff: "/board", admin: "/overview" }[user.role]} replace />} />
         <Route path="/overview" element={<OverviewPage />} />

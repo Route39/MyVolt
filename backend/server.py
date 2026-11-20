@@ -21,6 +21,8 @@ from pymongo import ASCENDING, DESCENDING, IndexModel, ReturnDocument
 from pydantic import BaseModel, Field
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+import bcrypt
+import jwt
 
 import storage
 from seed import seed
@@ -68,6 +70,34 @@ async def ensure_indexes() -> None:
 app = FastAPI()
 api = APIRouter(prefix="/api")
 P = {"_id": 0}
+USER_P = {"_id": 0, "password_hash": 0}
+JWT_SECRET = os.environ.get("JWT_SECRET", "route39-myvolt-jwt-secret-key-2026")
+JWT_ALG = "HS256"
+DEFAULT_PASSWORD = os.environ.get("DEFAULT_USER_PASSWORD", "route39@123")
+
+
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_token(user: dict) -> str:
+    return jwt.encode(
+        {
+            "sub": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+            "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALG,
+    )
 
 
 def now_iso():
@@ -86,11 +116,21 @@ def inr(v):
     return f"₹{v:,.0f}"
 
 
-# ---------- auth (role switcher, header-based) ----------
-async def current_user(x_user_id: Optional[str] = Header(None)):
-    if not x_user_id:
-        raise HTTPException(401, "Select a user to continue")
-    u = await db.users.find_one({"id": x_user_id, "active": True}, P)
+# ---------- auth (JWT bearer + role switcher header fallback) ----------
+async def current_user(authorization: Optional[str] = Header(None), x_user_id: Optional[str] = Header(None)):
+    uid = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+            uid = payload.get("sub")
+        except Exception:
+            raise HTTPException(401, "Invalid or expired session. Please sign in again.")
+    elif x_user_id:
+        uid = x_user_id
+    if not uid:
+        raise HTTPException(401, "Select a user or sign in to continue")
+    u = await db.users.find_one({"id": uid, "active": True}, USER_P)
     if not u:
         raise HTTPException(401, "Unknown or inactive user")
     return u
@@ -117,11 +157,22 @@ async def get_settings():
 
 
 # ---------- models ----------
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)
+
+
 class UserIn(BaseModel):
     name: str = Field(min_length=2)
     email: str
     role: Literal["staff", "accounts", "admin"]
     active: bool = True
+    password: Optional[str] = None
 
 
 class SettingsIn(BaseModel):
@@ -198,9 +249,44 @@ async def root():
     return {"message": "Route39 MyVolt Fleet API", "app": "MyVolt", "version": "1.0.0"}
 
 
+@api.post("/auth/login")
+async def login(body: LoginIn):
+    email = body.email.strip().lower()
+    u = await db.users.find_one({"email": email}, P)
+    if not u:
+        raise HTTPException(401, "Invalid email or password")
+    if not u.get("active", True):
+        raise HTTPException(403, "This account is inactive. Contact an administrator.")
+    if not u.get("password_hash"):
+        u["password_hash"] = hash_password(DEFAULT_PASSWORD)
+        await db.users.update_one({"id": u["id"]}, {"$set": {"password_hash": u["password_hash"]}})
+    if not verify_password(body.password, u["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    await audit(u, "User signed in", "user", u["id"], None, u["email"])
+    clean_user = {k: v for k, v in u.items() if k != "password_hash"}
+    return {"token": create_token(u), "user": clean_user}
+
+
+@api.post("/auth/logout")
+async def logout(user=Depends(current_user)):
+    await audit(user, "User signed out", "user", user["id"], None, user["email"])
+    return {"ok": True}
+
+
+@api.post("/auth/change-password")
+async def change_password(body: ChangePasswordIn, user=Depends(current_user)):
+    full = await db.users.find_one({"id": user["id"]}, P)
+    current_hash = (full or {}).get("password_hash") or hash_password(DEFAULT_PASSWORD)
+    if not verify_password(body.current_password, current_hash):
+        raise HTTPException(400, "Current password is incorrect")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(body.new_password)}})
+    await audit(user, "Password changed", "user", user["id"], None, "Password updated")
+    return {"ok": True, "message": "Password updated successfully"}
+
+
 @api.get("/users/switcher")
 async def users_switcher():
-    return await db.users.find({"active": True}, {"_id": 0, "id": 1, "name": 1, "role": 1}).sort("role", 1).to_list(200)
+    return await db.users.find({"active": True}, {"_id": 0, "id": 1, "name": 1, "email": 1, "role": 1}).sort("role", 1).to_list(200)
 
 
 @api.get("/me")
@@ -210,7 +296,7 @@ async def me(user=Depends(current_user)):
 
 @api.get("/users")
 async def list_users(user=Depends(require("admin"))):
-    return await db.users.find({}, P).sort("name", 1).to_list(500)
+    return await db.users.find({}, USER_P).sort("name", 1).to_list(500)
 
 
 @api.get("/users/staff")
@@ -220,28 +306,51 @@ async def list_staff(user=Depends(current_user)):
 
 @api.post("/users")
 async def create_user(body: UserIn, user=Depends(require("admin"))):
-    if await db.users.find_one({"email": body.email.lower()}):
+    email = body.email.strip().lower()
+    if await db.users.find_one({"email": email}):
         raise HTTPException(409, "A user with this email already exists")
-    doc = {"id": f"u-{uuid.uuid4().hex[:8]}", **body.model_dump(), "email": body.email.lower(), "created_at": now_iso()}
+    raw_pw = (body.password or "").strip()
+    if raw_pw and len(raw_pw) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    data = body.model_dump(exclude={"password"})
+    doc = {
+        "id": f"u-{uuid.uuid4().hex[:8]}",
+        **data,
+        "email": email,
+        "password_hash": hash_password(raw_pw or DEFAULT_PASSWORD),
+        "created_at": now_iso(),
+    }
     await db.users.insert_one(doc)
     await audit(user, "User created", "user", doc["id"], None, f"{doc['name']} ({doc['role']})")
     doc.pop("_id", None)
+    doc.pop("password_hash", None)
     return doc
 
 
 @api.put("/users/{uid}")
 async def update_user(uid: str, body: UserIn, user=Depends(require("admin"))):
-    old = await db.users.find_one({"id": uid}, P)
+    old = await db.users.find_one({"id": uid}, USER_P)
     if not old:
         raise HTTPException(404, "User not found")
     if uid == user["id"] and (not body.active or body.role != "admin"):
         raise HTTPException(400, "You cannot deactivate or demote yourself")
-    new = {**body.model_dump(), "email": body.email.lower()}
-    await db.users.update_one({"id": uid}, {"$set": new})
+    email = body.email.strip().lower()
+    if email != old.get("email") and await db.users.find_one({"email": email, "id": {"$ne": uid}}):
+        raise HTTPException(409, "A user with this email already exists")
+    raw_pw = (body.password or "").strip()
+    if raw_pw and len(raw_pw) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    new = {**body.model_dump(exclude={"password"}), "email": email}
+    update_set = dict(new)
+    if raw_pw:
+        update_set["password_hash"] = hash_password(raw_pw)
+    await db.users.update_one({"id": uid}, {"$set": update_set})
     for k in ["name", "email", "role", "active"]:
         if old.get(k) != new[k]:
             await audit(user, "User information changed", "user", uid, f"{k}: {old.get(k)}", f"{k}: {new[k]}")
-    return await db.users.find_one({"id": uid}, P)
+    if raw_pw:
+        await audit(user, "User password reset", "user", uid, None, "Password reset by admin")
+    return await db.users.find_one({"id": uid}, USER_P)
 
 
 @api.get("/settings")
@@ -1074,6 +1183,16 @@ app.add_middleware(CORSMiddleware, allow_credentials=True,
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
+async def migrate_passwords():
+    default_hash = hash_password(DEFAULT_PASSWORD)
+    res = await db.users.update_many(
+        {"$or": [{"password_hash": {"$exists": False}}, {"password_hash": None}, {"password_hash": ""}]},
+        {"$set": {"password_hash": default_hash}},
+    )
+    if res.modified_count:
+        logger.info("Migrated default passwords for %d user(s)", res.modified_count)
+
+
 async def run_seed():
     try:
         await asyncio.to_thread(storage.init_storage)
@@ -1081,6 +1200,10 @@ async def run_seed():
         logger.info("Seed complete")
     except Exception as e:
         logger.error("Seed failed: %s", e)
+    try:
+        await migrate_passwords()
+    except Exception as e:
+        logger.error("Password migration failed: %s", e)
     try:
         await migrate_ids()
         logger.info("Driver/vehicle ID migration complete")

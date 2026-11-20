@@ -12,18 +12,20 @@ import { api, errMsg } from "@/lib/api";
 import { ROLE_LABEL } from "@/lib/format";
 import { PageHeader, Pager, usePaged } from "@/components/kit";
 
-const EMPTY = { name: "", email: "", role: "staff", active: true };
+const EMPTY = { name: "", email: "", role: "staff", active: true, password: "" };
 
 const UserDialog = ({ open, onOpenChange, user, onSaved }) => {
   const [f, setF] = useState(EMPTY);
   useEffect(() => {
-    if (open) setF(user ? { name: user.name, email: user.email, role: user.role, active: user.active } : EMPTY);
+    if (open) setF(user ? { name: user.name, email: user.email, role: user.role, active: user.active, password: "" } : EMPTY);
   }, [open, user]);
   const save = async (e) => {
     e.preventDefault();
+    const payload = { name: f.name, email: f.email, role: f.role, active: f.active };
+    if (f.password.trim()) payload.password = f.password.trim();
     try {
-      if (user) await api.put(`/users/${user.id}`, f);
-      else await api.post("/users", f);
+      if (user) await api.put(`/users/${user.id}`, payload);
+      else await api.post("/users", payload);
       toast.success(user ? "User updated" : "User added");
       onOpenChange(false);
       onSaved();
@@ -43,6 +45,17 @@ const UserDialog = ({ open, onOpenChange, user, onSaved }) => {
               <SelectTrigger data-testid="user-form-role"><SelectValue /></SelectTrigger>
               <SelectContent>{Object.entries(ROLE_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{user ? "Reset password (optional)" : "Initial password (optional)"}</Label>
+            <Input
+              type="password"
+              minLength={6}
+              value={f.password}
+              onChange={(e) => setF({ ...f, password: e.target.value })}
+              placeholder={user ? "Leave blank to keep current password" : "Defaults to route39@123"}
+              data-testid="user-form-password"
+            />
           </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} data-testid="user-form-active" />Active</label>
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" data-testid="user-form-save">Save</Button></div>

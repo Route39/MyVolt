@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { KeyRound, Loader2, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/kit";
 import { useUser } from "@/context/UserContext";
@@ -39,22 +42,118 @@ const RentRules = () => {
   );
 };
 
+const ChangePasswordCard = () => {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post("/auth/change-password", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      toast.success("Password updated successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="r-card p-4" data-testid="change-password-card">
+      <div className="mb-3 flex items-center gap-2">
+        <KeyRound className="h-4 w-4 text-[#15803D]" />
+        <div className="r-label">Change password</div>
+      </div>
+      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Current password</Label>
+          <Input
+            type="password"
+            required
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="Current password"
+            data-testid="current-password-input"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">New password</Label>
+          <Input
+            type="password"
+            required
+            minLength={6}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Min 6 characters"
+            data-testid="new-password-input"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Confirm new password</Label>
+          <Input
+            type="password"
+            required
+            minLength={6}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Repeat new password"
+            data-testid="confirm-password-input"
+          />
+        </div>
+        <div className="sm:col-span-3 flex justify-end">
+          <Button type="submit" disabled={busy} data-testid="change-password-submit">
+            {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Update Password
+          </Button>
+        </div>
+      </form>
+    </section>
+  );
+};
+
 export default function SettingsPage() {
-  const { user, hasRole } = useUser();
+  const { user, hasRole, logout } = useUser();
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Signed out");
+  };
   return (
     <div className="max-w-3xl space-y-4 fade-up">
-      <PageHeader title="Settings" subtitle="Your profile and system rules" />
+      <PageHeader title="Settings" subtitle="Your profile, password, and system rules" />
       <section className="r-card p-4" data-testid="profile-card">
-        <div className="r-label mb-3">User profile</div>
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-full bg-[#101820] text-sm font-bold text-white">{user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}</div>
-          <div>
-            <div className="font-semibold">{user.name}</div>
-            <div className="text-xs text-[#64748B]">{user.email} · {ROLE_LABEL[user.role]}</div>
+        <div className="r-label mb-3">Active session</div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-full bg-[#101820] text-sm font-bold text-white">{user.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}</div>
+            <div>
+              <div className="font-semibold">{user.name}</div>
+              <div className="text-xs text-[#64748B]">{user.email} · {ROLE_LABEL[user.role]}</div>
+            </div>
           </div>
+          <Button variant="outline" size="sm" onClick={handleLogout} data-testid="settings-logout-button">
+            <LogOut className="mr-1.5 h-4 w-4" />
+            Sign Out
+          </Button>
         </div>
-        <p className="mt-3 text-xs text-[#64748B]">Login is disabled in this version. Switch the acting user from the menu in the top-right corner.</p>
       </section>
+      <ChangePasswordCard />
       {hasRole("admin") ? <RentRules /> : <p className="text-xs text-[#64748B]">Rent rules can be changed by an Admin.</p>}
     </div>
   );
