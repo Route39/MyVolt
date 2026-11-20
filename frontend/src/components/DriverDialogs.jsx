@@ -10,7 +10,7 @@ import { api, errMsg } from "@/lib/api";
 import { VehicleSelect, useVehicles } from "@/components/Vehicles";
 import { fmtDate, fmtDateTime, inr } from "@/lib/format";
 
-const EMPTY = { name: "", mobile: "", city: "", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", status: "Active", rent_free_dates: [], driver_code: "", current_vehicle_id: null };
+const EMPTY = { name: "", mobile: "", city: "", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", package: "", status: "Active", rent_free_dates: [], driver_code: "", current_vehicle_id: null };
 
 const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs">{label}</Label>{children}</div>;
 
@@ -68,6 +68,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
             <F label="Vehicle handover date"><Input type="date" value={f.handover_date || ""} onChange={set("handover_date")} data-testid="driver-form-handover" /></F>
             <F label="Rent calculation start date"><Input type="date" value={f.rent_start_date || ""} onChange={set("rent_start_date")} data-testid="driver-form-rent-start" /></F>
             <F label="Daily rent (₹)"><Input type="number" min="1" required value={f.daily_rent} onChange={set("daily_rent")} data-testid="driver-form-rent" /></F>
+            <F label="Package (optional)"><Input value={f.package || ""} onChange={set("package")} placeholder="e.g. Silver Package" data-testid="driver-form-package" /></F>
             <F label="Status">
               <Select value={f.status} onValueChange={set("status")}>
                 <SelectTrigger data-testid="driver-form-status"><SelectValue /></SelectTrigger>

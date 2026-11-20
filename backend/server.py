@@ -190,6 +190,7 @@ class DriverIn(BaseModel):
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
     daily_rent: float = Field(gt=0)
+    package: str = ""
     status: Literal["Active", "Inactive", "Suspended"] = "Active"
     rent_free_dates: List[str] = []
 
@@ -203,6 +204,9 @@ class VehicleIn(BaseModel):
     reg_no: str = Field(min_length=4)
     city: str = Field(min_length=2)
     vehicle_type: str = ""
+    vin: str = ""
+    rental_ends: str = ""
+    rental_status: str = ""
     status: Literal["Active", "Inactive", "Maintenance"] = "Active"
     details: str = ""
 
@@ -253,8 +257,12 @@ class ImportRowIn(BaseModel):
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
     driver_code: Optional[str] = None
+    package: str = ""
     reg_no: str = ""
     vehicle_type: str = ""
+    vin: str = ""
+    rental_ends: str = ""
+    rental_status: str = ""
     status: str = "Active"
     details: str = ""
 
@@ -425,8 +433,39 @@ async def get_driver_or_404(did):
 
 
 @api.get("/drivers")
-async def list_drivers(q: str = "", user=Depends(current_user)):
-    return await db.drivers.find(driver_filter(q), P).sort("name", 1).to_list(2000)
+async def list_drivers(q: str = "", city: str = "", status: str = "", format: str = "json", user=Depends(current_user)):
+    f = driver_filter(q)
+    if city and city != "all":
+        f["city"] = city
+    if status and status != "all":
+        f["status"] = status
+    drivers = await db.drivers.find(f, P).sort("name", 1).to_list(2000)
+    if format == "xlsx":
+        rows = [
+            [
+                d.get("driver_code"),
+                d.get("name"),
+                d.get("mobile"),
+                d.get("city"),
+                d.get("current_vehicle_id") or "",
+                d.get("vehicle_no") or "",
+                d.get("package") or "",
+                d.get("daily_rent"),
+                d.get("joining_date"),
+                d.get("handover_date") or "",
+                d.get("rent_start_date") or "",
+                d.get("status"),
+            ]
+            for d in drivers
+        ]
+        return await xlsx_response(
+            "drivers",
+            "Drivers Master",
+            ["Driver ID", "Driver Name", "Mobile", "City", "Vehicle ID", "Vehicle Reg. No.", "Package", "Daily Rent (₹)", "Joining Date", "Handover Date", "Rent Start Date", "Status"],
+            rows,
+            user,
+        )
+    return drivers
 
 
 async def enrich_driver(drv):
@@ -444,7 +483,7 @@ async def get_driver(did: str, user=Depends(current_user)):
     return await enrich_driver(drv)
 
 
-DRIVER_CODE_RX = re.compile(r"^[A-Z]{3}-D-\d{3,}$")
+DRIVER_CODE_RX = re.compile(r"^[A-Z0-9]{2,10}-[A-Z0-9-]{2,15}$")
 
 
 @api.post("/drivers")
@@ -516,12 +555,23 @@ async def next_code(kind, prefix):
                 return code
 
 
-async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details=""):
+async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details="", vin="", rental_ends="", rental_status=""):
     if await db.vehicles.find_one({"reg_key": reg_key(reg_no)}):
         raise HTTPException(409, f"A vehicle with registration {reg_no.upper()} already exists")
-    doc = {"vehicle_id": await next_code("vehicle", city_prefix(city)), "reg_no": reg_no.strip().upper(),
-           "reg_key": reg_key(reg_no), "city": city.strip(), "vehicle_type": vehicle_type, "status": status,
-           "details": details, "created_at": now_iso()}
+    stored_reg = reg_no.strip() if " - " in reg_no else reg_no.strip().upper()
+    doc = {
+        "vehicle_id": await next_code("vehicle", city_prefix(city)),
+        "reg_no": stored_reg,
+        "reg_key": reg_key(stored_reg),
+        "city": city.strip(),
+        "vehicle_type": vehicle_type,
+        "vin": vin.strip().upper(),
+        "rental_ends": rental_ends.strip(),
+        "rental_status": rental_status or "available",
+        "status": status,
+        "details": details,
+        "created_at": now_iso(),
+    }
     await db.vehicles.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -567,24 +617,66 @@ async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("s
 
 
 @api.get("/vehicles")
-async def list_vehicles(q: str = "", user=Depends(current_user)):
+async def list_vehicles(q: str = "", city: str = "", status: str = "", format: str = "json", user=Depends(current_user)):
     f = {}
     if q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
         f = {"$or": [{"vehicle_id": rx}, {"reg_no": rx}, {"reg_key": {"$regex": re.escape(reg_key(q)) or ".", "$options": "i"}},
-                     {"city": rx}, {"vehicle_type": rx}]}
+                     {"city": rx}, {"vehicle_type": rx}, {"vin": rx}, {"details": rx}]}
+    if city and city != "all":
+        f["city"] = city
+    if status and status != "all":
+        f["status"] = status
     vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(2000)
-    drivers = await db.drivers.find({"current_vehicle_id": {"$ne": None}},
-                                    {"_id": 0, "id": 1, "name": 1, "driver_code": 1, "current_vehicle_id": 1}).to_list(5000)
+    drivers = await db.drivers.find(
+        {"current_vehicle_id": {"$ne": None}},
+        {"_id": 0, "id": 1, "name": 1, "driver_code": 1, "mobile": 1, "daily_rent": 1, "current_vehicle_id": 1},
+    ).to_list(5000)
     by_vid = {d["current_vehicle_id"]: d for d in drivers}
     for v in vehicles:
         v["current_driver"] = by_vid.get(v["vehicle_id"])
+        v["daily_rent"] = (v["current_driver"] or {}).get("daily_rent") or v.get("daily_rent") or 0
+        v["rental_status"] = "rented" if v.get("current_driver") else (v.get("rental_status") or "available")
+    if format == "xlsx":
+        rows = [
+            [
+                v.get("vehicle_id"),
+                v.get("reg_no"),
+                v.get("rental_status") if v.get("status") == "Active" else v.get("status"),
+                (v.get("current_driver") or {}).get("name") or "Not Assigned",
+                (v.get("current_driver") or {}).get("driver_code") or "",
+                (v.get("current_driver") or {}).get("mobile") or "",
+                v.get("city"),
+                v.get("vin") or "",
+                v.get("rental_ends") or "(blank)",
+                v.get("vehicle_type") or "",
+                v.get("daily_rent") or "",
+                v.get("details") or "",
+            ]
+            for v in vehicles
+        ]
+        return await xlsx_response(
+            "vehicles",
+            "Vehicles Master",
+            ["Vehicle ID", "Vehicle", "Status", "Driver", "Driver ID", "Mobile", "City", "VIN", "Rental Ends", "Vehicle Type", "Daily Rent (₹)", "Details"],
+            rows,
+            user,
+        )
     return vehicles
 
 
 @api.post("/vehicles")
 async def create_vehicle(body: VehicleIn, user=Depends(require("admin"))):
-    doc = await insert_vehicle(body.reg_no, body.city, body.vehicle_type, body.status, body.details)
+    doc = await insert_vehicle(
+        body.reg_no,
+        body.city,
+        body.vehicle_type,
+        body.status,
+        body.details,
+        body.vin,
+        body.rental_ends,
+        body.rental_status,
+    )
     await audit(user, "Vehicle created", "vehicle", doc["vehicle_id"], None, f"{doc['reg_no']} · {doc['city']}")
     return doc
 
@@ -594,7 +686,14 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
     old = await db.vehicles.find_one({"vehicle_id": vid}, P)
     if not old:
         raise HTTPException(404, "Vehicle not found")
-    new = {**body.model_dump(), "reg_no": body.reg_no.strip().upper(), "reg_key": reg_key(body.reg_no)}
+    stored_reg = body.reg_no.strip() if " - " in body.reg_no else body.reg_no.strip().upper()
+    new = {
+        **body.model_dump(),
+        "reg_no": stored_reg,
+        "reg_key": reg_key(stored_reg),
+        "vin": body.vin.strip().upper(),
+        "rental_ends": body.rental_ends.strip(),
+    }
     if new["reg_key"] != old["reg_key"] and await db.vehicles.find_one({"reg_key": new["reg_key"]}):
         raise HTTPException(409, f"A vehicle with registration {new['reg_no']} already exists")
     if new["status"] == "Inactive" and old["status"] != "Inactive":
@@ -602,12 +701,35 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
         if holder:
             raise HTTPException(409, f"{vid} is assigned to {holder['name']} ({holder.get('driver_code')}). Change that driver's vehicle before marking it inactive.")
     await db.vehicles.update_one({"vehicle_id": vid}, {"$set": new})
-    for k in ["reg_no", "city", "vehicle_type", "status", "details"]:
+    for k in ["reg_no", "city", "vehicle_type", "vin", "rental_ends", "status", "details"]:
         if old.get(k) != new[k]:
             await audit(user, "Vehicle information changed", "vehicle", vid, f"{k}: {old.get(k)}", f"{k}: {new[k]}")
     if new["reg_no"] != old["reg_no"]:
         await db.drivers.update_many({"current_vehicle_id": vid}, {"$set": {"vehicle_no": new["reg_no"]}})
     return await db.vehicles.find_one({"vehicle_id": vid}, P)
+
+
+@api.get("/import/template")
+async def import_template(user=Depends(require("admin"))):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Import Template"
+    cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date", "VIN", "Rental Ends", "Daily Rent (₹)", "Status", "Details"]
+    ws.append(cols)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="15803D")
+    ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03", "MBX0007EF2B260000", "2026-11-25", 800, "rented", "Route39 EV Fleet"])
+    ws.append(["Not Assigned", "", "", "141 - KA51AJ2624", "", "Bengaluru", "", "MBX0007EF2B266083", "(blank)", 850, "available", "Available EV"])
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = max(14, min(32, max(len(str(c.value or "")) for c in col) + 3))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(
+        buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="myvolt_import_template.xlsx"'},
+    )
 
 
 @api.post("/import/parse")
@@ -646,33 +768,65 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
             city = importer.clean_city(row.city, default="Bengaluru")
             veh_doc = None
             reg_clean = importer.clean_reg_no(row.reg_no)
+            raw_name = re.sub(r"\s+", " ", (row.name or "").strip())
+            if importer._is_unassigned_driver(raw_name):
+                raw_name = ""
+            vin_clean = "" if importer._is_blank(row.vin) else re.sub(r"\s+", "", row.vin.strip().upper())
+            rental_ends_clean = "" if importer._is_blank(row.rental_ends) else importer.clean_date(row.rental_ends, row.rental_ends.strip())
+            pkg_clean = "" if importer._is_blank(row.package) else re.sub(r"\s+", " ", row.package.strip())
+            raw_rental_st = (row.rental_status or "").strip().lower()
+            if not raw_rental_st and (row.status or "").strip().lower() in ("available", "rented"):
+                raw_rental_st = row.status.strip().lower()
+            rental_status_clean = raw_rental_st if raw_rental_st in ("available", "rented") else ("rented" if raw_name else "available")
 
             if body.mode in ("vehicles", "drivers_and_vehicles") and reg_clean:
                 rk = reg_key(reg_clean)
                 veh_doc = await db.vehicles.find_one({"reg_key": rk}, P)
                 veh_status = importer.clean_status(row.status, kind="vehicle")
+                veh_rent = max(float(row.daily_rent or 0), 0.0)
                 if not veh_doc:
-                    veh_doc = await insert_vehicle(reg_clean, city, row.vehicle_type.strip(), veh_status, row.details.strip())
+                    veh_doc = await insert_vehicle(
+                        reg_clean,
+                        city,
+                        row.vehicle_type.strip(),
+                        veh_status,
+                        row.details.strip(),
+                        vin=vin_clean,
+                        rental_ends=rental_ends_clean,
+                        rental_status=rental_status_clean,
+                    )
+                    if veh_rent > 0:
+                        await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": {"daily_rent": veh_rent}})
+                        veh_doc["daily_rent"] = veh_rent
                     vehicles_created += 1
                     await audit(user, "Vehicle imported", "vehicle", veh_doc["vehicle_id"], None, f"{veh_doc['reg_no']} · {city}")
                 elif body.update_existing:
-                    upd_v = {"city": city}
+                    upd_v = {"city": city, "rental_status": rental_status_clean}
                     if row.vehicle_type.strip():
                         upd_v["vehicle_type"] = row.vehicle_type.strip()
                     if row.details.strip():
                         upd_v["details"] = row.details.strip()
+                    if vin_clean:
+                        upd_v["vin"] = vin_clean
+                    if rental_ends_clean or importer._is_blank(row.rental_ends):
+                        upd_v["rental_ends"] = rental_ends_clean
+                    if veh_rent > 0:
+                        upd_v["daily_rent"] = veh_rent
                     await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": upd_v})
                     veh_doc = await db.vehicles.find_one({"vehicle_id": veh_doc["vehicle_id"]}, P)
                     vehicles_updated += 1
 
-            if body.mode in ("drivers", "drivers_and_vehicles") and row.name.strip():
-                name = re.sub(r"\s+", " ", row.name.strip())
-                mobile = importer.clean_mobile(row.mobile)
-                if len(mobile) > 10:
-                    mobile = mobile[-10:]
-                elif 0 < len(mobile) < 10:
-                    mobile = mobile.ljust(10, "0")
-                elif not mobile:
+            if raw_name and body.mode in ("drivers", "drivers_and_vehicles", "vehicles"):
+                name = raw_name
+                mobile_raw = importer.clean_mobile(row.mobile)
+                has_mobile = bool(mobile_raw)
+                if len(mobile_raw) > 10:
+                    mobile = mobile_raw[-10:]
+                elif len(mobile_raw) == 10:
+                    mobile = mobile_raw
+                elif len(mobile_raw) > 0:
+                    mobile = mobile_raw.ljust(10, "0")
+                else:
                     mobile = "9000000000"
 
                 joining = importer.clean_date(row.joining_date, today_str)
@@ -681,14 +835,24 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 daily_rent = max(float(row.daily_rent or 700.0), 1.0)
                 drv_status = importer.clean_status(row.status, kind="driver")
 
-                code_in = (row.driver_code or "").strip().upper()
+                code_in = re.sub(r"\s*-\s*", "-", (row.driver_code or "").strip().upper())
                 drv_doc = None
                 if code_in and DRIVER_CODE_RX.match(code_in):
                     drv_doc = await db.drivers.find_one({"driver_code": code_in}, P)
-                if not drv_doc:
+                if not drv_doc and has_mobile:
                     drv_doc = await db.drivers.find_one(
                         {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "mobile": mobile}, P
                     )
+                if not drv_doc and not has_mobile:
+                    drv_doc = await db.drivers.find_one(
+                        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}, P
+                    )
+                    if not drv_doc:
+                        prefix_matches = await db.drivers.find(
+                            {"name": {"$regex": f"^{re.escape(name)}(\\s|$)", "$options": "i"}}, P
+                        ).to_list(2)
+                        if len(prefix_matches) == 1:
+                            drv_doc = prefix_matches[0]
 
                 if not drv_doc:
                     if code_in and DRIVER_CODE_RX.match(code_in) and not await db.drivers.find_one({"driver_code": code_in}):
@@ -707,6 +871,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         "handover_date": handover,
                         "rent_start_date": rent_start_dt,
                         "daily_rent": daily_rent,
+                        "package": pkg_clean,
                         "status": drv_status,
                         "rent_free_dates": [],
                         "vehicle_no": "",
@@ -727,6 +892,10 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         "rent_start_date": rent_start_dt,
                         "status": drv_status,
                     }
+                    if pkg_clean:
+                        upd_d["package"] = pkg_clean
+                    if has_mobile:
+                        upd_d["mobile"] = mobile
                     await db.drivers.update_one({"id": drv_doc["id"]}, {"$set": upd_d})
                     drv_doc = await db.drivers.find_one({"id": drv_doc["id"]}, P)
                     drivers_updated += 1
@@ -738,6 +907,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         )
                         if not other:
                             await assign_vehicle(drv_doc, veh_doc["vehicle_id"], user, "Imported from file")
+                            await db.vehicles.update_one({"vehicle_id": veh_doc["vehicle_id"]}, {"$set": {"rental_status": "rented"}})
                             assignments_created += 1
         except HTTPException as exc:
             errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc.detail}")
@@ -1271,7 +1441,7 @@ def driver_filter(q):
         return {}
     rx = {"$regex": re.escape(q.strip()), "$options": "i"}
     compact = re.sub(r"[^A-Za-z0-9]", "", q)
-    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}]
+    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}, {"package": rx}]
     if compact:
         ors.append({"vehicle_no": {"$regex": r"\s*".join(compact), "$options": "i"}})
     return {"$or": ors}

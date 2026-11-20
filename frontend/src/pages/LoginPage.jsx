@@ -6,19 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from "@/context/UserContext";
 import { errMsg } from "@/lib/api";
-import { ROLE_LABEL } from "@/lib/format";
-
-const FALLBACK_USERS = [
-  { id: "u-admin", name: "Anita Rao", email: "anita.admin@route39.in", role: "admin" },
-  { id: "u-acc-1", name: "Priya Sharma", email: "priya.accounts@route39.in", role: "accounts" },
-  { id: "u-staff-1", name: "Ravi Kumar", email: "ravi.staff@route39.in", role: "staff" },
-];
-
-const ROLE_BADGE = {
-  admin: "bg-[#101820] text-white",
-  accounts: "bg-[#EFF6FF] text-[#1D4ED8]",
-  staff: "bg-[#F0FDF4] text-[#15803D]",
-};
 
 const FEATURES = [
   ["Role-Based Access Control", "Dedicated views and permissions for Staff, Accounts, and Admin teams."],
@@ -27,14 +14,12 @@ const FEATURES = [
 ];
 
 export default function LoginPage() {
-  const { users, login } = useUser();
+  const { login } = useUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  const demoList = users.length ? users : FALLBACK_USERS;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -43,21 +28,6 @@ export default function LoginPage() {
     try {
       const u = await login(email, password);
       toast.success(`Welcome back, ${u.name}`);
-    } catch (err) {
-      setError(errMsg(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const quickSignIn = async (u) => {
-    setError("");
-    setEmail(u.email);
-    setPassword("route39@123");
-    setBusy(true);
-    try {
-      const logged = await login(u.email, "route39@123");
-      toast.success(`Signed in as ${logged.name}`);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -113,12 +83,13 @@ export default function LoginPage() {
         </div>
       </section>
 
-      <section className="flex items-center justify-center px-4 py-8 sm:px-8 lg:col-span-7 lg:py-12">
-        <div className="w-full max-w-[460px] space-y-5 fade-up">
-          <div className="r-card p-6 sm:p-7">
-            <div className="mb-5">
-              <h2 className="font-display text-xl font-bold text-[#101820]">Sign in to MyVolt</h2>
-              <p className="mt-1 text-xs text-[#64748B]">Enter your work email and password to continue</p>
+      <section className="flex items-center justify-center px-4 py-10 sm:px-8 lg:col-span-7 lg:py-12">
+        <div className="w-full max-w-[440px] space-y-4 fade-up">
+          <div className="r-card p-6 sm:p-8 shadow-sm">
+            <div className="mb-6">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#15803D]">MyVolt Portal</div>
+              <h2 className="mt-1 font-display text-2xl font-bold text-[#101820]">Sign in to your account</h2>
+              <p className="mt-1 text-xs text-[#64748B]">Enter your Route39 work email and password to continue</p>
             </div>
 
             {error && (
@@ -145,7 +116,7 @@ export default function LoginPage() {
                     placeholder="name@route39.in"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="h-9 pl-9"
+                    className="h-10 pl-9"
                     data-testid="login-email"
                   />
                 </div>
@@ -163,13 +134,13 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="h-9 pl-9 pr-9"
+                    className="h-10 pl-9 pr-9"
                     data-testid="login-password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPw((v) => !v)}
-                    className="absolute right-2.5 top-2 text-[#64748B] hover:text-[#17212B]"
+                    className="absolute right-2.5 top-2.5 text-[#64748B] hover:text-[#17212B]"
                     aria-label={showPw ? "Hide password" : "Show password"}
                     data-testid="login-password-toggle"
                   >
@@ -181,46 +152,17 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 disabled={busy}
-                className="h-9 w-full bg-[#16A34A] font-semibold text-white hover:bg-[#15803D]"
+                className="h-10 w-full bg-[#16A34A] font-semibold text-white hover:bg-[#15803D]"
                 data-testid="login-submit"
               >
                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In
               </Button>
             </form>
-          </div>
 
-          <div className="r-card p-5" data-testid="demo-accounts">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="r-label">Quick Demo Accounts</div>
-                <p className="mt-0.5 text-xs text-[#64748B]">Click an account to sign in immediately</p>
-              </div>
-              <span className="rounded bg-[#F1F5F9] px-2 py-1 font-mono text-[11px] font-medium text-[#334155]">
-                Password: route39@123
-              </span>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              {demoList.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => quickSignIn(u)}
-                  data-testid={`demo-user-${u.id}`}
-                  className="flex items-center justify-between gap-2 rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-left transition-colors hover:border-[#22C55E] hover:bg-[#F0FDF4]/40 disabled:opacity-60"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-semibold text-[#17212B]">{u.name}</div>
-                    <div className="truncate text-[11px] text-[#64748B]">{u.email || u.id}</div>
-                  </div>
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${ROLE_BADGE[u.role] || "bg-slate-100 text-slate-700"}`}>
-                    {ROLE_LABEL[u.role] || u.role}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <p className="mt-5 border-t border-[#E5E7EB] pt-4 text-center text-xs text-[#64748B]">
+              Contact your Route39 administrator if you need account access or a password reset.
+            </p>
           </div>
         </div>
       </section>

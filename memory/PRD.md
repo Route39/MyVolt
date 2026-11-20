@@ -8,7 +8,7 @@ Build a simple, fast, professional web application called **Route39 Rent Audit**
 - Defaults: future dates blocked (admin toggle), BLUE when verified total < daily rent, delayed = submitted > 1 day after payment date.
 
 ## Architecture
-- FastAPI (`server.py`, `seed.py`, `storage.py`) + MongoDB; screenshots in Emergent Object Storage, served via `/api/files/{id}`.
+- FastAPI (`server.py`, `seed.py`, `storage.py`) + MongoDB; screenshots in Local Object Storage, served via `/api/files/{id}`.
 - React + shadcn; pages: Calendar, Verification, TransactionDetail, History, Reports (+Audit Log tab for admin), Drivers (+rent rules), Staff.
 
 ## Implemented (2026-11-20)

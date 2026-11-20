@@ -7,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useUser } from "@/context/UserContext";
 import { api, errMsg } from "@/lib/api";
 import { ROLE_LABEL } from "@/lib/format";
 import { PageHeader, Pager, usePaged } from "@/components/kit";
@@ -66,7 +65,6 @@ const UserDialog = ({ open, onOpenChange, user, onSaved }) => {
 };
 
 export default function StaffPage() {
-  const { reloadUsers } = useUser();
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(undefined);
   const load = useCallback(() => api.get("/users").then((r) => setRows(r.data)), []);
@@ -103,7 +101,7 @@ export default function StaffPage() {
       </div>
       <Pager page={paged.page} pageSize={paged.size} total={paged.total} onPage={paged.setPage} testId="users-pager" />
       </div>
-      <UserDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} user={edit} onSaved={() => { load(); reloadUsers(); }} />
+      <UserDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} user={edit} onSaved={load} />
     </div>
   );
 }

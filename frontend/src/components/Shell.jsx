@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/NotificationBell";
 import { DriverSearch } from "@/components/DriverSearch";
@@ -72,7 +71,7 @@ const SideNav = ({ collapsed, onNavigate }) => {
   const handleLogout = async () => {
     if (onNavigate) onNavigate();
     await logout();
-    toast.success("Signed out");
+    toast.success("Logged out");
   };
   return (
     <div className="flex h-full flex-col bg-[#151F27]">
@@ -99,45 +98,32 @@ const SideNav = ({ collapsed, onNavigate }) => {
               <div className="text-[11px] text-[#7C8A97]">{ROLE_LABEL[user.role]}</div>
             </div>
           )}
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Sign out"
-              className="rounded p-1 text-[#7C8A97] transition-colors hover:bg-white/[0.08] hover:text-white"
-              data-testid="sidebar-logout-button"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </button>
-          )}
         </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          title="Logout"
+          data-testid="sidebar-logout-button"
+          className={`mt-1 flex w-full items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium text-[#FCA5A5] transition-colors hover:bg-red-500/10 hover:text-white ${collapsed ? "justify-center" : ""}`}
+        >
+          <LogOut className="h-[17px] w-[17px] shrink-0" />
+          {!collapsed && <span>Logout</span>}
+        </button>
       </div>
     </div>
   );
 };
 
-const UserSwitcher = () => {
-  const { users, user, switchUser } = useUser();
+const UserIdentityPill = () => {
+  const { user } = useUser();
   return (
-    <Select value={user.id} onValueChange={switchUser}>
-      <SelectTrigger className="h-9 w-auto min-w-[170px] gap-2 border-[#E5E7EB] bg-white" data-testid="user-switcher">
-        <SelectValue>
-          <span className="flex items-center gap-2">
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#101820] text-[10px] font-bold text-white">{initials(user.name)}</span>
-            <span className="hidden truncate text-[13px] font-semibold sm:inline">{user.name}</span>
-            <span className="rounded bg-[#F0FDF4] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#15803D]" data-testid="role-badge">{ROLE_LABEL[user.role]}</span>
-          </span>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent align="end">
-        {["staff", "accounts", "admin"].map((r) => (
-          <SelectGroup key={r}>
-            <SelectLabel className="text-[10px] uppercase tracking-wider text-[#64748B]">{ROLE_LABEL[r]}</SelectLabel>
-            {users.filter((u) => u.role === r).map((u) => <SelectItem key={u.id} value={u.id} data-testid={`user-option-${u.id}`}>{u.name}</SelectItem>)}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex h-9 items-center gap-2 rounded-md border border-[#E5E7EB] bg-white px-2.5" data-testid="header-user-profile">
+      <span className="grid h-6 w-6 place-items-center rounded-full bg-[#101820] text-[10px] font-bold text-white">{initials(user.name)}</span>
+      <span className="hidden truncate text-[13px] font-semibold text-[#17212B] sm:inline">{user.name}</span>
+      <span className="rounded bg-[#F0FDF4] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#15803D]" data-testid="role-badge">
+        {ROLE_LABEL[user.role]}
+      </span>
+    </div>
   );
 };
 
@@ -152,7 +138,7 @@ export const Shell = () => {
   const toggle = () => { localStorage.setItem("r39_nav", collapsed ? "0" : "1"); setCollapsed(!collapsed); };
   const handleLogout = async () => {
     await logout();
-    toast.success("Signed out");
+    toast.success("Logged out");
   };
   return (
     <div className="min-h-screen bg-[#F4F6F8]">
@@ -175,11 +161,18 @@ export const Shell = () => {
           <div className="ml-auto hidden w-[300px] md:block">
             <DriverSearch compact value={null} onSelect={(d) => nav(`/calendar?driver=${d.id}`)} placeholder="Search drivers…" testId="global-search" />
           </div>
-          <div className="ml-auto flex items-center gap-1.5 md:ml-2">
+          <div className="ml-auto flex items-center gap-2 md:ml-2">
             <NotificationBell />
-            <UserSwitcher />
-            <Button variant="ghost" size="icon" className="h-9 w-9 text-[#64748B] hover:text-[#17212B]" onClick={handleLogout} title="Sign out" data-testid="logout-button">
-              <LogOut className="h-4 w-4" />
+            <UserIdentityPill />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5 border-[#E5E7EB] text-xs font-semibold text-[#B91C1C] hover:border-red-200 hover:bg-red-50 hover:text-[#991B1B]"
+              onClick={handleLogout}
+              data-testid="logout-button"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </header>

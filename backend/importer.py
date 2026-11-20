@@ -60,6 +60,17 @@ HEADER_ALIASES = {
         "employee name",
         "pilot name",
         "captain name",
+        "pilot",
+        "captain",
+        "cust name",
+        "customer",
+        "customer name",
+        "party",
+        "party name",
+        "person",
+        "assigned driver",
+        "driver full name",
+        "emp name",
     ),
     "mobile": (
         "mobile",
@@ -72,8 +83,18 @@ HEADER_ALIASES = {
         "cell",
         "contact no",
         "contact number",
+        "mob",
+        "ph",
+        "tel",
+        "telephone",
+        "whatsapp",
+        "whatsapp no",
+        "driver mobile",
+        "driver phone",
+        "number",
     ),
     "driver_code": (
+        "id",
         "driver id",
         "driver code",
         "driver_code",
@@ -82,8 +103,56 @@ HEADER_ALIASES = {
         "employee id",
         "driver no",
         "code",
+        "drv id",
+        "d id",
+        "pilot id",
     ),
-    "city": ("city", "location", "branch", "hub", "center", "region", "zone"),
+    "package": (
+        "package",
+        "plan",
+        "subscription",
+        "rental package",
+        "scheme",
+        "tier",
+        "pack",
+    ),
+    "vin": (
+        "vin",
+        "chassis",
+        "chassis no",
+        "chassis number",
+        "vin no",
+        "vin number",
+        "frame no",
+    ),
+    "rental_ends": (
+        "rental ends",
+        "rental end",
+        "rent ends",
+        "lease ends",
+        "contract ends",
+        "expiry",
+        "end date",
+        "rental",
+        "valid till",
+    ),
+    "city": (
+        "city",
+        "location",
+        "branch",
+        "hub",
+        "center",
+        "region",
+        "zone",
+        "area",
+        "state",
+        "station",
+        "depot",
+        "town",
+        "place",
+        "site",
+        "operating city",
+    ),
     "daily_rent": (
         "daily rent",
         "rent",
@@ -94,6 +163,19 @@ HEADER_ALIASES = {
         "tariff",
         "daily rate",
         "rent per day",
+        "amount",
+        "rent (₹)",
+        "daily rent (₹)",
+        "collection",
+        "expected rent",
+        "price",
+        "fee",
+        "charge",
+        "rental",
+        "day amount",
+        "vehicle rent",
+        "rent/day",
+        "rent day",
     ),
     "joining_date": (
         "joining date",
@@ -104,6 +186,12 @@ HEADER_ALIASES = {
         "date of joining",
         "onboarded",
         "onboarding date",
+        "date",
+        "allotment date",
+        "assigned date",
+        "entry date",
+        "created date",
+        "from date",
     ),
     "handover_date": ("handover date", "handover", "vehicle handover"),
     "rent_start_date": ("rent start date", "rent start", "billing start", "rent starts"),
@@ -121,15 +209,57 @@ HEADER_ALIASES = {
         "number plate",
         "assigned vehicle",
         "vehicle reg",
+        "vehicle reg no",
+        "vehicle reg. no.",
+        "veh no",
+        "v no",
+        "v.no",
+        "cab no",
+        "car no",
+        "auto no",
+        "bike no",
+        "scooter no",
+        "ev no",
+        "rc no",
+        "rc number",
+        "gaadi no",
+        "chasis no",
     ),
-    "vehicle_type": ("vehicle type", "type", "model", "category", "segment", "ev type", "vehicle model"),
-    "details": ("details", "make", "description", "notes", "remarks", "vehicle details"),
+    "vehicle_type": (
+        "vehicle type",
+        "type",
+        "model",
+        "category",
+        "segment",
+        "ev type",
+        "vehicle model",
+        "make",
+        "brand",
+        "variant",
+        "vehicle make",
+        "sub type",
+    ),
+    "details": (
+        "details",
+        "description",
+        "notes",
+        "remarks",
+        "vehicle details",
+        "remark",
+        "comment",
+        "comments",
+        "info",
+        "extra",
+        "specification",
+        "battery",
+        "owner",
+    ),
     "status": ("status", "state", "active", "driver status", "vehicle status"),
 }
 
 REG_RX = re.compile(r"\b([A-Z]{2})[\s-]*(\d{1,2})[\s-]*([A-Z]{1,3})[\s-]*(\d{3,4})\b", re.IGNORECASE)
 MOBILE_RX = re.compile(r"(?:\+?91[\s-]*)?\b([6-9]\d{9})\b")
-DRIVER_CODE_RX = re.compile(r"\b([A-Z]{3}-D-\d{3,})\b", re.IGNORECASE)
+DRIVER_CODE_RX = re.compile(r"\b([A-Z0-9]{2,10}-[A-Z0-9-]{2,15})\b", re.IGNORECASE)
 DATE_RX = re.compile(
     r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b",
     re.IGNORECASE,
@@ -205,14 +335,50 @@ def clean_rent(val: Any, default: float = 700.0) -> float:
     return num if num > 0 else default
 
 
+def _is_blank(val: Any) -> bool:
+    return re.sub(r"\s+", " ", str(val or "").strip().lower()) in (
+        "",
+        "(blank)",
+        "blank",
+        "null",
+        "none",
+        "n/a",
+        "na",
+        "-",
+        "—",
+    )
+
+
+def _is_unassigned_driver(val: Any) -> bool:
+    if _is_blank(val):
+        return True
+    return re.sub(r"\s+", " ", str(val or "").strip().lower()) in (
+        "not assigned",
+        "unassigned",
+        "no driver",
+        "available",
+        "free",
+        "vacant",
+        "spare",
+    )
+
+
 def clean_reg_no(val: Any) -> str:
-    s = re.sub(r"\s+", " ", str(val or "").strip().upper())
-    if not s:
+    if _is_blank(val):
         return ""
-    m = REG_RX.search(s)
+    s = re.sub(r"\s+", " ", str(val or "").strip())
+    if "-" in s:
+        parts = [p.strip() for p in s.split("-", 1)]
+        left = parts[0].upper() if re.match(r"^[A-Za-z0-9 ]+$", parts[0]) else parts[0]
+        right = parts[1]
+        if re.match(r"^[A-Za-z]{2}\d{1,2}[A-Za-z]{1,3}\d{3,4}$", right):
+            right = right.upper()
+        return f"{left} - {right}".strip(" -")
+    s_up = s.upper()
+    m = REG_RX.search(s_up)
     if m:
         return f"{m.group(1).upper()} {m.group(2)} {m.group(3).upper()} {m.group(4)}"
-    return s
+    return s_up
 
 
 def clean_city(val: Any, default: str = "Bengaluru") -> str:
@@ -233,18 +399,19 @@ def clean_status(val: Any, kind: str = "driver") -> str:
     return "Active"
 
 
+SKIP_HEADERS = ("s no", "sl no", "sr no", "serial", "serial number", "no", "sno", "vehicle id")
+
+
 def _match_header_col(header_text: str) -> Optional[str]:
     norm = _norm_header(header_text)
-    if not norm or norm in ("s no", "sl no", "sr no", "serial", "no", "sno"):
-        return None
-    if norm == "vehicle id":
+    if not norm or norm in SKIP_HEADERS:
         return None
     for field, aliases in HEADER_ALIASES.items():
-        if norm in aliases:
+        if norm in aliases or str(header_text or "").strip().lower() in aliases:
             return field
     for field, aliases in HEADER_ALIASES.items():
         for alias in aliases:
-            if len(alias) >= 4 and alias in norm:
+            if len(alias) >= 5 and alias not in ("number", "amount", "status", "details") and alias in norm:
                 return field
     return None
 
@@ -270,26 +437,50 @@ def _empty_row(today_str: str) -> Dict[str, Any]:
         "handover_date": "",
         "rent_start_date": "",
         "driver_code": "",
+        "package": "",
         "reg_no": "",
         "vehicle_type": "",
+        "vin": "",
+        "rental_ends": "",
+        "rental_status": "",
         "status": "Active",
         "details": "",
     }
 
 
-def _row_from_mapping(cells: List[Any], col_map: Dict[int, str], today_str: str) -> Optional[Dict[str, Any]]:
+def _format_extra_val(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, datetime):
+        return val.date().isoformat()
+    if isinstance(val, date):
+        return val.isoformat()
+    s = str(val).strip()
+    if s.endswith(".0") and s[:-2].isdigit():
+        return s[:-2]
+    return re.sub(r"\s+", " ", s)
+
+
+def _row_from_mapping(
+    cells: List[Any],
+    col_map: Dict[int, str],
+    today_str: str,
+    extra_cols: Optional[Dict[int, str]] = None,
+) -> Optional[Dict[str, Any]]:
     raw: Dict[str, Any] = {}
     for idx, field in col_map.items():
         if idx < len(cells):
             raw[field] = cells[idx]
     name = re.sub(r"\s+", " ", str(raw.get("name") or "").strip())
+    if _is_unassigned_driver(name):
+        name = ""
     reg_no = clean_reg_no(raw.get("reg_no"))
     mobile = clean_mobile(raw.get("mobile"))
     if not name and not reg_no and not mobile:
         return None
-    if name.lower() in ("total", "grand total", "summary", "driver name", "name"):
+    if name.lower() in ("total", "grand total", "summary", "driver name", "name", "driver"):
         return None
-    if reg_no and reg_no.lower() in ("vehicle no", "reg no", "registration"):
+    if reg_no and reg_no.lower() in ("vehicle no", "reg no", "registration", "vehicle"):
         return None
 
     item = _empty_row(today_str)
@@ -299,29 +490,242 @@ def _row_from_mapping(cells: List[Any], col_map: Dict[int, str], today_str: str)
     item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=700.0)
     joining = clean_date(raw.get("joining_date"), today_str)
     item["joining_date"] = joining
-    item["handover_date"] = clean_date(raw.get("handover_date"), joining) if raw.get("handover_date") else ""
-    item["rent_start_date"] = clean_date(raw.get("rent_start_date"), joining) if raw.get("rent_start_date") else ""
-    code_raw = str(raw.get("driver_code") or "").strip().upper()
-    item["driver_code"] = code_raw if re.match(r"^[A-Z]{3}-D-\d{3,}$", code_raw) else ""
+    item["handover_date"] = clean_date(raw.get("handover_date"), joining) if not _is_blank(raw.get("handover_date")) else ""
+    item["rent_start_date"] = clean_date(raw.get("rent_start_date"), joining) if not _is_blank(raw.get("rent_start_date")) else ""
+    code_raw = re.sub(r"\s*-\s*", "-", str(raw.get("driver_code") or "").strip().upper())
+    item["driver_code"] = code_raw if re.match(r"^[A-Z0-9]{2,10}-[A-Z0-9-]{2,15}$", code_raw) else ""
+    item["package"] = "" if _is_blank(raw.get("package")) else re.sub(r"\s+", " ", str(raw.get("package")).strip())
     item["reg_no"] = reg_no
-    item["vehicle_type"] = str(raw.get("vehicle_type") or "").strip()
-    item["status"] = clean_status(raw.get("status"), kind="driver" if name else "vehicle")
-    item["details"] = str(raw.get("details") or "").strip()
+    item["vehicle_type"] = "" if _is_blank(raw.get("vehicle_type")) else str(raw.get("vehicle_type")).strip()
+    item["vin"] = "" if _is_blank(raw.get("vin")) else re.sub(r"\s+", "", str(raw.get("vin")).strip().upper())
+    raw_re = raw.get("rental_ends")
+    item["rental_ends"] = "" if _is_blank(raw_re) else clean_date(raw_re, str(raw_re).strip())
+    raw_st = str(raw.get("status") or "").strip()
+    if raw_st.lower() in ("available", "rented"):
+        item["rental_status"] = raw_st.lower()
+        item["status"] = "Active"
+    else:
+        item["status"] = clean_status(raw_st, kind="driver" if name else "vehicle")
+        item["rental_status"] = "rented" if name else "available"
+    details_parts = []
+    base_details = "" if _is_blank(raw.get("details")) else str(raw.get("details")).strip()
+    if base_details:
+        details_parts.append(base_details)
+    if extra_cols:
+        for idx, hdr in extra_cols.items():
+            if idx < len(cells) and not _is_blank(cells[idx]):
+                val_s = _format_extra_val(cells[idx])
+                if val_s:
+                    details_parts.append(f"{hdr}: {val_s}")
+    item["details"] = " · ".join(details_parts)
     return item
 
 
-def _parse_table_rows(rows: List[List[Any]], today_str: str, fallback_map: Optional[Dict[int, str]] = None):
-    cleaned = [[c for c in (r or [])] for r in rows if any(str(c or "").strip() for c in (r or []))]
-    if not cleaned:
+def _infer_col_map_from_data(sample_rows: List[List[Any]]) -> Tuple[Dict[int, str], int]:
+    if not sample_rows:
+        return {}, 0
+    # Skip row 0 if it looks like an unrecognized header row (all short non-numeric strings without reg/mobile/date)
+    start_idx = 0
+    first_row = [str(c or "").strip() for c in sample_rows[0] if str(c or "").strip()]
+    if first_row and all(
+        not REG_RX.search(c) and not MOBILE_RX.search(c) and not DATE_RX.search(c) and not re.search(r"^\d+$", c)
+        for c in first_row
+    ):
+        if len(sample_rows) > 1:
+            start_idx = 1
+
+    data_rows = sample_rows[start_idx:]
+    if not data_rows:
+        return {}, 0
+
+    max_cols = max(len(r) for r in data_rows)
+    col_map: Dict[int, str] = {}
+    used_fields = set()
+
+    for col_idx in range(max_cols):
+        vals = [r[col_idx] for r in data_rows if col_idx < len(r) and str(r[col_idx] or "").strip()]
+        if not vals:
+            continue
+        strs = [str(v).strip() for v in vals]
+        n = len(vals)
+        if "reg_no" not in used_fields and sum(1 for s in strs if REG_RX.search(s)) >= max(1, n // 2):
+            col_map[col_idx] = "reg_no"
+            used_fields.add("reg_no")
+        elif "mobile" not in used_fields and sum(1 for s in strs if MOBILE_RX.search(clean_mobile(s))) >= max(1, n // 2):
+            col_map[col_idx] = "mobile"
+            used_fields.add("mobile")
+        elif "city" not in used_fields and sum(1 for s in strs if CITY_RX.search(s)) >= max(1, n // 2):
+            col_map[col_idx] = "city"
+            used_fields.add("city")
+        elif "joining_date" not in used_fields and sum(
+            1 for v, s in zip(vals, strs) if isinstance(v, (datetime, date)) or DATE_RX.search(s)
+        ) >= max(1, n // 2):
+            col_map[col_idx] = "joining_date"
+            used_fields.add("joining_date")
+        elif "status" not in used_fields and sum(
+            1 for s in strs if s.lower() in ("active", "inactive", "suspended", "maintenance")
+        ) >= max(1, n // 2):
+            col_map[col_idx] = "status"
+            used_fields.add("status")
+        elif "daily_rent" not in used_fields and sum(
+            1
+            for v, s in zip(vals, strs)
+            if (isinstance(v, (int, float)) and not isinstance(v, bool) and 100 <= float(v) <= 25000)
+            or (re.match(r"^(?:₹|Rs\.?|INR)?\s*\d[\d,]*(?:\.\d+)?$", s, re.I) and 100 <= clean_rent(s, 0) <= 25000)
+        ) >= max(1, n // 2):
+            col_map[col_idx] = "daily_rent"
+            used_fields.add("daily_rent")
+
+    if not (used_fields & {"reg_no", "mobile", "city", "joining_date", "daily_rent"}):
+        return {}, 0
+
+    for col_idx in range(max_cols):
+        if col_idx in col_map:
+            continue
+        strs = [str(r[col_idx]).strip() for r in data_rows if col_idx < len(r) and str(r[col_idx] or "").strip()]
+        if not strs:
+            continue
+        # Skip pure serial-number columns (1, 2, 3...)
+        if all(s.isdigit() and int(s) < 500 for s in strs):
+            continue
+        if "name" not in used_fields and any(re.search(r"[A-Za-z]{2,}", s) for s in strs):
+            col_map[col_idx] = "name"
+            used_fields.add("name")
+        elif "vehicle_type" not in used_fields and any(re.search(r"[A-Za-z]{2,}", s) for s in strs):
+            col_map[col_idx] = "vehicle_type"
+            used_fields.add("vehicle_type")
+
+    return col_map, start_idx
+
+
+HEADER_CONT_WORDS = {"date", "ends", "end", "no", "id", "name", "number", "start", "code", "type", "rent"}
+
+
+def _merge_cell_text(prev: str, cont: str) -> str:
+    p = str(prev or "").strip()
+    c = str(cont or "").strip()
+    if not p:
+        return c
+    if not c:
+        return p
+    if p.endswith(" -"):
+        return f"{p} {c}"
+    if p.endswith("-"):
+        return f"{p}{c}"
+    return f"{p} {c}"
+
+
+def _merge_wrapped_data_rows(rows: List[List[Any]], row_ys: Optional[List[float]] = None) -> List[List[Any]]:
+    merged: List[List[Any]] = []
+    last_src_idx: Optional[int] = None
+    pending_prefix: Optional[List[str]] = None
+
+    for idx, raw_r in enumerate(rows):
+        r = [c for c in raw_r]
+        non_empty = [j for j, c in enumerate(r) if str(c or "").strip()]
+        is_sparse = len(r) >= 2 and 1 <= len(non_empty) <= 3 and not str(r[0] or "").strip()
+
+        if not is_sparse:
+            if pending_prefix is not None:
+                while len(r) < len(pending_prefix):
+                    r.append("")
+                for j, pval in enumerate(pending_prefix):
+                    if str(pval or "").strip():
+                        r[j] = _merge_cell_text(pval, r[j])
+                pending_prefix = None
+            merged.append(r)
+            last_src_idx = idx
+            continue
+
+        has_trailing_dash = any(str(r[j] or "").strip().endswith("-") for j in non_empty)
+        prev_has_trailing_dash = bool(
+            merged and any(j < len(merged[-1]) and str(merged[-1][j] or "").strip().endswith("-") for j in non_empty)
+        )
+
+        attach_next = False
+        if not merged or has_trailing_dash:
+            attach_next = True
+        elif prev_has_trailing_dash:
+            attach_next = False
+        elif row_ys is not None and last_src_idx is not None and idx + 1 < len(row_ys):
+            d_prev = abs(row_ys[last_src_idx] - row_ys[idx])
+            d_next = abs(row_ys[idx] - row_ys[idx + 1])
+            if d_next + 1.5 < d_prev:
+                attach_next = True
+
+        if attach_next:
+            if pending_prefix is None:
+                pending_prefix = [""] * len(r)
+            while len(pending_prefix) < len(r):
+                pending_prefix.append("")
+            for j in non_empty:
+                pending_prefix[j] = _merge_cell_text(pending_prefix[j], r[j])
+        else:
+            prev = merged[-1]
+            while len(prev) < len(r):
+                prev.append("")
+            for j in non_empty:
+                prev[j] = _merge_cell_text(prev[j], r[j])
+            last_src_idx = idx
+
+    if pending_prefix is not None and any(str(c or "").strip() for c in pending_prefix):
+        merged.append(pending_prefix)
+    return merged
+
+
+def _parse_table_rows(
+    rows: List[List[Any]],
+    today_str: str,
+    fallback_map: Optional[Dict[int, str]] = None,
+    row_ys: Optional[List[float]] = None,
+):
+    indexed = [
+        (i, [c for c in (r or [])])
+        for i, r in enumerate(rows)
+        if any(str(c or "").strip() for c in (r or []))
+    ]
+    if not indexed:
         return [], fallback_map
+    cleaned = [r for _, r in indexed]
+    cleaned_ys = [row_ys[i] for i, _ in indexed] if row_ys and len(row_ys) == len(rows) else None
 
     col_map: Optional[Dict[int, str]] = None
+    extra_cols: Dict[int, str] = {}
     start_idx = 0
-    for i, r in enumerate(cleaned[:6]):
+    for i, r in enumerate(cleaned[:15]):
         cand = _build_col_map(r)
         if len(cand) >= 2:
+            header_row = [str(c or "").strip() for c in r]
+            if i > 0:
+                prv = cleaned[i - 1]
+                prv_non_empty = [(idx, str(c or "").strip()) for idx, c in enumerate(prv) if str(c or "").strip()]
+                if 1 <= len(prv_non_empty) <= 3 and all(
+                    re.match(r"^[A-Za-z][A-Za-z /()._-]{0,20}$", w) and not REG_RX.search(w) for _, w in prv_non_empty
+                ):
+                    while len(header_row) < len(prv):
+                        header_row.append("")
+                    for idx, w in prv_non_empty:
+                        header_row[idx] = f"{w} {header_row[idx]}".strip()
+                    cand = _build_col_map(header_row)
+            next_start = i + 1
+            if i + 1 < len(cleaned):
+                nxt = cleaned[i + 1]
+                nxt_non_empty = [(idx, str(c or "").strip()) for idx, c in enumerate(nxt) if str(c or "").strip()]
+                if 1 <= len(nxt_non_empty) <= 2 and all(
+                    w.lower() in HEADER_CONT_WORDS for _, w in nxt_non_empty
+                ):
+                    while len(header_row) < len(nxt):
+                        header_row.append("")
+                    for idx, w in nxt_non_empty:
+                        header_row[idx] = f"{header_row[idx]} {w}".strip()
+                    cand = _build_col_map(header_row)
+                    next_start = i + 2
             col_map = cand
-            start_idx = i + 1
+            start_idx = next_start
+            for idx, hdr_raw in enumerate(header_row):
+                hdr = re.sub(r"\s+", " ", hdr_raw.strip())
+                if idx not in col_map and hdr and _norm_header(hdr) not in SKIP_HEADERS:
+                    extra_cols[idx] = hdr
             break
 
     if not col_map and fallback_map and len(cleaned[0]) >= max(fallback_map.keys(), default=0) + 1:
@@ -329,14 +733,22 @@ def _parse_table_rows(rows: List[List[Any]], today_str: str, fallback_map: Optio
         start_idx = 0
 
     if not col_map:
+        inferred, inf_start = _infer_col_map_from_data(cleaned[:10])
+        if len(inferred) >= 2:
+            col_map = inferred
+            start_idx = inf_start
+
+    if not col_map:
         return [], fallback_map
 
+    data_ys = cleaned_ys[start_idx:] if cleaned_ys else None
+    data_rows = _merge_wrapped_data_rows(cleaned[start_idx:], row_ys=data_ys)
     parsed: List[Dict[str, Any]] = []
-    for r in cleaned[start_idx:]:
+    for r in data_rows:
         # Skip repeated header rows across page breaks
         if len(_build_col_map(r)) >= 2 and _build_col_map(r) == col_map:
             continue
-        item = _row_from_mapping(r, col_map, today_str)
+        item = _row_from_mapping(r, col_map, today_str, extra_cols=extra_cols)
         if item:
             parsed.append(item)
     return parsed, col_map
@@ -496,7 +908,7 @@ def _est_width(txt: str, fs: float) -> float:
     return w * max(fs, 6.0)
 
 
-def _extract_coord_rows(page) -> List[List[Tuple[float, str]]]:
+def _extract_coord_rows_with_y(page) -> List[Tuple[float, List[Tuple[float, str]]]]:
     fragments: List[Tuple[float, float, float, str, bool]] = []
 
     def visitor(text, cm, tm, font_dict, font_size):
@@ -521,7 +933,7 @@ def _extract_coord_rows(page) -> List[List[Tuple[float, str]]]:
         else:
             y_groups[-1].append(frag)
 
-    rows: List[List[Tuple[float, str]]] = []
+    rows: List[Tuple[float, List[Tuple[float, str]]]] = []
     for grp in y_groups:
         grp.sort(key=lambda f: f[1])
         merged: List[Tuple[float, float, str, bool]] = []
@@ -539,19 +951,23 @@ def _extract_coord_rows(page) -> List[List[Tuple[float, str]]]:
                 merged[-1] = (px, pfs, f"{ptxt}{sep}{txt}", ended_nl)
             else:
                 merged.append((x, fs, txt, ended_nl))
-        rows.append([(x, txt) for x, _, txt, _ in merged])
+        rows.append((grp[0][0], [(x, txt) for x, _, txt, _ in merged]))
     return rows
 
 
-def _align_coord_table(
-    coord_rows: List[List[Tuple[float, str]]], prev_col_xs: Optional[List[float]] = None
-) -> Tuple[List[List[str]], Optional[List[float]]]:
-    if not coord_rows:
-        return [], prev_col_xs
+def _extract_coord_rows(page) -> List[List[Tuple[float, str]]]:
+    return [r for _, r in _extract_coord_rows_with_y(page)]
+
+
+def _align_coord_table_with_y(
+    coord_rows_y: List[Tuple[float, List[Tuple[float, str]]]], prev_col_xs: Optional[List[float]] = None
+) -> Tuple[List[List[str]], List[float], Optional[List[float]]]:
+    if not coord_rows_y:
+        return [], [], prev_col_xs
 
     col_xs = prev_col_xs
     header_idx = None
-    for idx, row in enumerate(coord_rows[:8]):
+    for idx, (_, row) in enumerate(coord_rows_y[:15]):
         cand = _build_col_map([txt for _, txt in row])
         if len(cand) >= 2:
             col_xs = [x for x, _ in row]
@@ -559,34 +975,38 @@ def _align_coord_table(
             break
 
     if not col_xs:
-        return [[txt for _, txt in r] for r in coord_rows], None
+        return [[txt for _, txt in r] for _, r in coord_rows_y], [y for y, _ in coord_rows_y], None
+
+    keep_from = header_idx if header_idx is not None else 0
+    if header_idx is not None and header_idx > 0:
+        prev_row = coord_rows_y[header_idx - 1][1]
+        if 1 <= len(prev_row) <= 3 and all(
+            re.match(r"^[A-Za-z][A-Za-z /()._-]{0,20}$", txt) and not REG_RX.search(txt) for _, txt in prev_row
+        ):
+            keep_from = header_idx - 1
 
     aligned: List[List[str]] = []
-    for idx, row in enumerate(coord_rows):
-        if header_idx is not None and idx < header_idx:
+    aligned_ys: List[float] = []
+    for idx, (y, row) in enumerate(coord_rows_y):
+        if idx < keep_from:
             continue
         if len(row) == len(col_xs):
             aligned.append([txt for _, txt in row])
+            aligned_ys.append(y)
             continue
         cells = [""] * len(col_xs)
         for x, txt in row:
-            best_j = 0
-            best_dist = abs(x - col_xs[0])
+            matched_j = None
             for j, cx in enumerate(col_xs):
-                if j + 1 < len(col_xs):
-                    mid = (cx + col_xs[j + 1]) / 2.0
-                    if x < mid and x >= cx - 18.0:
-                        best_j = j
-                        break
-                dist = abs(x - cx)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_j = j
-                if j + 1 == len(col_xs) and x >= (col_xs[j - 1] + cx) / 2.0:
-                    best_j = j
-            cells[best_j] = f"{cells[best_j]} {txt}".strip() if cells[best_j] else txt
+                if j + 1 < len(col_xs) and (cx - 18.0 <= x < col_xs[j + 1] - 12.0):
+                    matched_j = j
+                    break
+            if matched_j is None:
+                matched_j = min(range(len(col_xs)), key=lambda j: abs(x - col_xs[j]))
+            cells[matched_j] = f"{cells[matched_j]} {txt}".strip() if cells[matched_j] else txt
         aligned.append(cells)
-    return aligned, col_xs
+        aligned_ys.append(y)
+    return aligned, aligned_ys, col_xs
 
 
 def parse_pdf(data: bytes, today_str: str) -> Dict[str, Any]:
@@ -598,10 +1018,10 @@ def parse_pdf(data: bytes, today_str: str) -> Dict[str, Any]:
     reader = PdfReader(io.BytesIO(data))
     for page in reader.pages:
         page_rows: List[Dict[str, Any]] = []
-        coord_rows = _extract_coord_rows(page)
-        aligned_table, last_col_xs = _align_coord_table(coord_rows, last_col_xs)
+        coord_rows_y = _extract_coord_rows_with_y(page)
+        aligned_table, aligned_ys, last_col_xs = _align_coord_table_with_y(coord_rows_y, last_col_xs)
         if aligned_table:
-            parsed, last_col_map = _parse_table_rows(aligned_table, today_str, last_col_map)
+            parsed, last_col_map = _parse_table_rows(aligned_table, today_str, last_col_map, row_ys=aligned_ys)
             page_rows.extend(parsed)
 
         layout_txt = ""

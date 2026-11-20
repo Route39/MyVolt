@@ -132,7 +132,7 @@ export default function SettingsPage() {
   const { user, hasRole, logout } = useUser();
   const handleLogout = async () => {
     await logout();
-    toast.success("Signed out");
+    toast.success("Logged out");
   };
   return (
     <div className="max-w-3xl space-y-4 fade-up">
@@ -149,7 +149,7 @@ export default function SettingsPage() {
           </div>
           <Button variant="outline" size="sm" onClick={handleLogout} data-testid="settings-logout-button">
             <LogOut className="mr-1.5 h-4 w-4" />
-            Sign Out
+            Logout
           </Button>
         </div>
       </section>
