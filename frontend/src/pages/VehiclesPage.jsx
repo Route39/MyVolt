@@ -345,7 +345,7 @@ export default function VehiclesPage() {
       </div>
       <VehicleDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} vehicle={edit} onSaved={load} />
       <AssignDriverDialog open={!!assign} onOpenChange={(o) => !o && setAssign(null)} vehicle={assign} onSaved={load} />
-      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers_and_vehicles" onImported={load} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="vehicles" onImported={load} />
     </div>
   );
 }

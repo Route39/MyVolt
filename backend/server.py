@@ -765,17 +765,32 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
 
 
 @api.get("/import/template")
-async def import_template(user=Depends(require("admin"))):
+async def import_template(mode: str = "drivers_and_vehicles", user=Depends(require("admin"))):
     wb = Workbook()
     ws = wb.active
-    ws.title = "Import Template"
-    cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date", "VIN", "Rental Ends", "Daily Rent (₹)", "Status", "Details"]
-    ws.append(cols)
+    if mode == "drivers":
+        ws.title = "Drivers Template"
+        cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date"]
+        ws.append(cols)
+        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03"])
+        fname = "myvolt_drivers_template.xlsx"
+    elif mode == "vehicles":
+        ws.title = "Vehicles Template"
+        cols = ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"]
+        ws.append(cols)
+        ws.append(["141 - KA51AJ2624", "available", "Not Assigned", "Bengaluru", "MBX0007EF2B266083", "(blank)"])
+        ws.append(["150 - KA05AM1234", "rented", "Ravi", "Bengaluru", "MBX0007EF2B260000", "2026-11-25"])
+        fname = "myvolt_vehicles_template.xlsx"
+    else:
+        ws.title = "Import Template"
+        cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date", "VIN", "Rental Ends", "Daily Rent (₹)", "Status", "Details"]
+        ws.append(cols)
+        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03", "MBX0007EF2B260000", "2026-11-25", 800, "rented", "Route39 EV Fleet"])
+        ws.append(["Not Assigned", "", "", "141 - KA51AJ2624", "", "Bengaluru", "", "MBX0007EF2B266083", "(blank)", 850, "available", "Available EV"])
+        fname = "myvolt_import_template.xlsx"
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor="15803D")
-    ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03", "MBX0007EF2B260000", "2026-11-25", 800, "rented", "Route39 EV Fleet"])
-    ws.append(["Not Assigned", "", "", "141 - KA51AJ2624", "", "Bengaluru", "", "MBX0007EF2B266083", "(blank)", 850, "available", "Available EV"])
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = max(14, min(32, max(len(str(c.value or "")) for c in col) + 3))
     buf = io.BytesIO()
@@ -783,7 +798,7 @@ async def import_template(user=Depends(require("admin"))):
     return Response(
         buf.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="myvolt_import_template.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
 
 
@@ -873,6 +888,55 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
     assignments_created = 0
     errors: List[str] = []
 
+    def link_driver_to_vehicle(target_drv: dict, target_veh: dict) -> bool:
+        nonlocal assignments_created
+        if not target_veh or target_veh.get("status") == "Inactive":
+            return False
+        vid_ = target_veh["vehicle_id"]
+        if target_drv.get("current_vehicle_id") == vid_:
+            return False
+        other = holder_by_vid.get(vid_)
+        if other and other["id"] != target_drv["id"]:
+            return False
+        did_ = target_drv["id"]
+        prev_vid = target_drv.get("current_vehicle_id")
+        if prev_vid:
+            if (holder_by_vid.get(prev_vid) or {}).get("id") == did_:
+                holder_by_vid.pop(prev_vid, None)
+            if did_ not in new_drivers_by_id:
+                close_assign_driver_ids.add(did_)
+                unassign_driver_ids.add(did_)
+        if did_ in last_batch_assign_by_drv:
+            last_batch_assign_by_drv[did_]["end_at"] = ts
+
+        target_drv["current_vehicle_id"] = vid_
+        target_drv["vehicle_no"] = target_veh["reg_no"]
+        holder_by_vid[vid_] = target_drv
+        if did_ not in new_drivers_by_id:
+            drv_patch_by_id.setdefault(did_, {}).update(
+                {"current_vehicle_id": vid_, "vehicle_no": target_veh["reg_no"]}
+            )
+        target_veh["rental_status"] = "rented"
+        if vid_ not in new_vehicles_by_id:
+            veh_patch_by_id.setdefault(vid_, {})["rental_status"] = "rented"
+
+        asgn = {
+            "id": str(uuid.uuid4()),
+            "driver_id": did_,
+            "vehicle_id": vid_,
+            "reg_no": target_veh["reg_no"],
+            "prev_vehicle_id": prev_vid,
+            "start_at": ts,
+            "end_at": None,
+            "changed_by": user["id"],
+            "changed_by_name": user["name"],
+            "reason": "Imported from file",
+        }
+        new_assignments.append(asgn)
+        last_batch_assign_by_drv[did_] = asgn
+        assignments_created += 1
+        return True
+
     for idx, row in enumerate(body.rows):
         try:
             city = importer.clean_city(row.city, default="Bengaluru")
@@ -946,6 +1010,14 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                                 last_batch_assign_by_drv.pop(hid)["end_at"] = ts
                     vehicles_updated += 1
 
+                if body.mode == "vehicles" and not raw_name and rental_status_clean == "rented" and veh_doc and not holder_by_vid.get(veh_doc["vehicle_id"]):
+                    unassigned_reg_matches = [
+                        d for d in drv_by_id.values()
+                        if not d.get("current_vehicle_id") and d.get("vehicle_no") and reg_key(d["vehicle_no"]) == rk
+                    ]
+                    if len(unassigned_reg_matches) == 1:
+                        link_driver_to_vehicle(unassigned_reg_matches[0], veh_doc)
+
             if raw_name and body.mode in ("drivers", "drivers_and_vehicles", "vehicles"):
                 name = raw_name
                 mobile_raw = importer.clean_mobile(row.mobile)
@@ -979,6 +1051,9 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         if len(prefix_matches) == 1:
                             drv_doc = prefix_matches[0]
 
+                if veh_doc is None and body.mode == "drivers" and reg_clean:
+                    veh_doc = veh_by_rk.get(reg_key(reg_clean))
+
                 if not drv_doc:
                     if code_in and DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
                         code = code_in
@@ -986,6 +1061,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         code = alloc_code("driver", city_prefix(city))
                     drv_id = f"R39-DRV-{next_drv_num}"
                     next_drv_num += 1
+                    stored_drv_veh_no = reg_clean if (body.mode == "drivers" and reg_clean) else ""
                     drv_doc = {
                         "id": drv_id,
                         "driver_code": code,
@@ -999,7 +1075,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         "package": pkg_clean,
                         "status": drv_status,
                         "rent_free_dates": [],
-                        "vehicle_no": "",
+                        "vehicle_no": stored_drv_veh_no,
                         "current_vehicle_id": None,
                         "adjustments": [],
                         "created_at": ts,
@@ -1024,53 +1100,16 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                     if has_mobile:
                         upd_d["mobile"] = mobile
                         drv_by_name_mob[(drv_doc.get("name", "").strip().lower(), mobile)] = drv_doc
+                    if body.mode == "drivers" and not veh_doc and not drv_doc.get("current_vehicle_id"):
+                        if reg_clean:
+                            upd_d["vehicle_no"] = reg_clean
                     drv_doc.update(upd_d)
                     if did not in new_drivers_by_id:
                         drv_patch_by_id.setdefault(did, {}).update(upd_d)
                     drivers_updated += 1
 
-                if veh_doc and veh_doc.get("status") != "Inactive":
-                    vid = veh_doc["vehicle_id"]
-                    if drv_doc.get("current_vehicle_id") != vid:
-                        other = holder_by_vid.get(vid)
-                        if not other or other["id"] == drv_doc["id"]:
-                            did = drv_doc["id"]
-                            prev_vid = drv_doc.get("current_vehicle_id")
-                            if prev_vid:
-                                if (holder_by_vid.get(prev_vid) or {}).get("id") == did:
-                                    holder_by_vid.pop(prev_vid, None)
-                                if did not in new_drivers_by_id:
-                                    close_assign_driver_ids.add(did)
-                                    unassign_driver_ids.add(did)
-                            if did in last_batch_assign_by_drv:
-                                last_batch_assign_by_drv[did]["end_at"] = ts
-
-                            drv_doc["current_vehicle_id"] = vid
-                            drv_doc["vehicle_no"] = veh_doc["reg_no"]
-                            holder_by_vid[vid] = drv_doc
-                            if did not in new_drivers_by_id:
-                                drv_patch_by_id.setdefault(did, {}).update(
-                                    {"current_vehicle_id": vid, "vehicle_no": veh_doc["reg_no"]}
-                                )
-                            veh_doc["rental_status"] = "rented"
-                            if vid not in new_vehicles_by_id:
-                                veh_patch_by_id.setdefault(vid, {})["rental_status"] = "rented"
-
-                            asgn = {
-                                "id": str(uuid.uuid4()),
-                                "driver_id": did,
-                                "vehicle_id": vid,
-                                "reg_no": veh_doc["reg_no"],
-                                "prev_vehicle_id": prev_vid,
-                                "start_at": ts,
-                                "end_at": None,
-                                "changed_by": user["id"],
-                                "changed_by_name": user["name"],
-                                "reason": "Imported from file",
-                            }
-                            new_assignments.append(asgn)
-                            last_batch_assign_by_drv[did] = asgn
-                            assignments_created += 1
+                if veh_doc:
+                    link_driver_to_vehicle(drv_doc, veh_doc)
         except HTTPException as exc:
             errors.append(f"Row {idx + 1} ({row.name or row.reg_no}): {exc.detail}")
         except Exception as exc:

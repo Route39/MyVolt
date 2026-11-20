@@ -793,3 +793,66 @@ class TestPdfExcelCsvImport:
             if vids:
                 m.vehicles.delete_many({"vehicle_id": {"$in": vids}})
                 m.audit_logs.delete_many({"entity_id": {"$in": vids}})
+
+    def test_drivers_only_mode_preserves_vehicle_no_without_creating_vehicles(self):
+        hdrs = admin_headers()
+        tpl_d = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "drivers"})
+        assert tpl_d.status_code == 200, tpl_d.text
+        wb_d = load_workbook(io.BytesIO(tpl_d.content))
+        assert [c.value for c in wb_d.active[1]] == ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date"]
+
+        tpl_v = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "vehicles"})
+        assert tpl_v.status_code == 200, tpl_v.text
+        wb_v = load_workbook(io.BytesIO(tpl_v.content))
+        assert [c.value for c in wb_v.active[1]] == ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"]
+
+        code = f"R39D-DRVONLY{SUFFIX}"
+        veh_tag = f"TESTDRVONLY{SUFFIX}"
+        created_did = None
+        try:
+            cr = requests.post(
+                f"{API}/import/commit",
+                headers=hdrs,
+                json={
+                    "mode": "drivers",
+                    "update_existing": True,
+                    "rows": [
+                        {
+                            "name": f"varshini_{SUFFIX}",
+                            "driver_code": code,
+                            "mobile": "7904800475",
+                            "reg_no": f"TUP001 - {veh_tag}",
+                            "package": "Silver Package",
+                            "city": "Tiruppur",
+                            "joining_date": "2026-10-03",
+                            "daily_rent": 700,
+                            "status": "Active",
+                            "has_daily_rent": True,
+                            "has_joining_date": True,
+                        }
+                    ],
+                },
+            )
+            assert cr.status_code == 200, cr.text
+            res = cr.json()
+            assert res["drivers_created"] == 1
+            assert res["vehicles_created"] == 0
+            assert res["vehicles_updated"] == 0
+            assert res["errors"] == []
+
+            drvs = requests.get(f"{API}/drivers", headers=hdrs, params={"q": code}).json()
+            assert len(drvs) == 1
+            d = drvs[0]
+            created_did = d["id"]
+            assert d["vehicle_no"] == f"TUP001 - {veh_tag}"
+            assert d["package"] == "Silver Package"
+            assert d["city"] == "Tiruppur"
+            assert d["joining_date"] == "2026-10-03"
+
+            vehs = requests.get(f"{API}/vehicles", headers=hdrs, params={"q": veh_tag}).json()
+            assert vehs == []
+        finally:
+            if created_did:
+                m = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+                m.drivers.delete_one({"id": created_did})
+                m.audit_logs.delete_many({"entity_id": created_did})

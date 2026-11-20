@@ -78,7 +78,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       setPreviewPage(1);
       setRawPreview(data.raw_text_preview || "");
       setOcrUsed(!!data.ocr_used);
-      if (data.detected_mode && data.rows?.length > 0) {
+      if (defaultMode === "drivers_and_vehicles" && data.detected_mode && data.rows?.length > 0) {
         setMode(data.detected_mode);
       }
       if (data.rows?.length) {
@@ -97,8 +97,9 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   const downloadTemplate = async () => {
     setDownloadingTpl(true);
     try {
-      const r = await api.get("/import/template", { responseType: "blob" });
-      downloadBlob(r.data, "myvolt_import_template.xlsx");
+      const r = await api.get("/import/template", { params: { mode }, responseType: "blob" });
+      const fname = mode === "drivers" ? "myvolt_drivers_template.xlsx" : mode === "vehicles" ? "myvolt_vehicles_template.xlsx" : "myvolt_import_template.xlsx";
+      downloadBlob(r.data, fname);
     } catch (err) {
       toast.error(errMsg(err));
     } finally {
@@ -216,11 +217,14 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   };
 
   const missingMobileCount = rows.filter((r) => mode !== "vehicles" && r.name?.trim() && !/^\d{10}$/.test(r.mobile || "")).length;
-  const missingRegCount = rows.filter((r) => mode !== "drivers" && !r.reg_no?.trim()).length;
+  const missingRegCount = rows.filter((r) => mode === "vehicles" && !r.reg_no?.trim()).length;
   const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
   const safePage = Math.min(previewPage, totalPages);
   const startIdx = (safePage - 1) * PREVIEW_PAGE_SIZE;
   const visibleRows = rows.slice(startIdx, startIdx + PREVIEW_PAGE_SIZE);
+  const isDriversOnly = mode === "drivers";
+  const isVehiclesOnly = mode === "vehicles";
+  const showAll = mode === "drivers_and_vehicles";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -228,10 +232,18 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-[#15803D]" />
-            Import Drivers &amp; Vehicles (Excel / PDF / Image / CSV)
+            {isDriversOnly
+              ? "Import Drivers (Excel / PDF / Image / CSV)"
+              : isVehiclesOnly
+                ? "Import Vehicles (Excel / PDF / Image / CSV)"
+                : "Import Drivers & Vehicles (Excel / PDF / Image / CSV)"}
           </DialogTitle>
           <DialogDescription>
-            Upload any Excel (.xlsx), PDF (text or scanned), CSV, or screenshot image (.png, .jpg, .webp) from your old platform. Review or edit extracted records before saving into MyVolt.
+            {isDriversOnly
+              ? "Upload your Drivers sheet (Excel, PDF, Image, or CSV). Columns: Driver, ID, Phone, Vehicle, Package, City, Joining Date."
+              : isVehiclesOnly
+                ? "Upload your Vehicles sheet (Excel, PDF, Image, or CSV). Columns: Vehicle, Status, Driver, City, VIN, Rental Ends."
+                : "Upload any Excel (.xlsx), PDF (text or scanned), CSV, or screenshot image (.png, .jpg, .webp) from your old platform. Review or edit extracted records before saving into MyVolt."}
           </DialogDescription>
         </DialogHeader>
 
@@ -304,15 +316,17 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               className="h-8 w-[130px] text-xs"
               data-testid="import-default-city"
             />
-            <Input
-              type="number"
-              min="1"
-              value={defaultRent}
-              onChange={(e) => setDefaultRent(e.target.value)}
-              placeholder="Daily rent"
-              className="h-8 w-[100px] text-xs"
-              data-testid="import-default-rent"
-            />
+            {!isVehiclesOnly && (
+              <Input
+                type="number"
+                min="1"
+                value={defaultRent}
+                onChange={(e) => setDefaultRent(e.target.value)}
+                placeholder="Daily rent"
+                className="h-8 w-[100px] text-xs"
+                data-testid="import-default-rent"
+              />
+            )}
             <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={applyDefaultsToEmpty} disabled={!rows.length}>
               Apply defaults
             </Button>
@@ -368,18 +382,36 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Driver</th>
-                  <th>ID</th>
-                  <th>Phone</th>
-                  <th>Vehicle</th>
-                  <th>Package</th>
-                  <th>City</th>
-                  <th>Joining Date</th>
-                  <th>VIN</th>
-                  <th>Rental Ends</th>
-                  <th>Daily Rent (₹)</th>
-                  <th>Status</th>
-                  <th>Details</th>
+                  {(isDriversOnly || showAll) && (
+                    <>
+                      <th>Driver</th>
+                      <th>ID</th>
+                      <th>Phone</th>
+                      <th>Vehicle</th>
+                      <th>Package</th>
+                      <th>City</th>
+                      <th>Joining Date</th>
+                    </>
+                  )}
+                  {isVehiclesOnly && (
+                    <>
+                      <th>Vehicle</th>
+                      <th>Status</th>
+                      <th>Driver</th>
+                      <th>City</th>
+                      <th>VIN</th>
+                      <th>Rental Ends</th>
+                    </>
+                  )}
+                  {showAll && (
+                    <>
+                      <th>VIN</th>
+                      <th>Rental Ends</th>
+                      <th>Daily Rent (₹)</th>
+                      <th>Status</th>
+                      <th>Details</th>
+                    </>
+                  )}
                   <th></th>
                 </tr>
               </thead>
@@ -390,121 +422,192 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                   return (
                     <tr key={i} data-testid={`import-row-${i}`}>
                       <td className="text-xs text-[#64748B]">{i + 1}</td>
-                      <td>
-                        <Input
-                          value={r.name || ""}
-                          onChange={(e) => updateCell(i, "name", e.target.value)}
-                          placeholder="Not Assigned"
-                          className="h-8 min-w-[125px] text-xs"
-                          data-testid={`import-row-name-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.driver_code || ""}
-                          onChange={(e) => updateCell(i, "driver_code", e.target.value)}
-                          placeholder="Auto / R39D-..."
-                          className="h-8 min-w-[110px] font-mono text-xs uppercase"
-                          data-testid={`import-row-code-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.mobile || ""}
-                          onChange={(e) => updateCell(i, "mobile", e.target.value)}
-                          placeholder="10-digit phone"
-                          className="h-8 min-w-[110px] font-mono text-xs"
-                          data-testid={`import-row-mobile-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.reg_no || ""}
-                          onChange={(e) => updateCell(i, "reg_no", e.target.value)}
-                          placeholder="141 - KA51AJ2624"
-                          className="h-8 min-w-[140px] font-mono text-xs"
-                          data-testid={`import-row-reg-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.package || ""}
-                          onChange={(e) => updateCell(i, "package", e.target.value)}
-                          placeholder="Silver Package"
-                          className="h-8 min-w-[115px] text-xs"
-                          data-testid={`import-row-package-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.city || ""}
-                          onChange={(e) => updateCell(i, "city", e.target.value)}
-                          placeholder="Bengaluru"
-                          className="h-8 min-w-[105px] text-xs"
-                          data-testid={`import-row-city-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          type="date"
-                          value={r.joining_date || ""}
-                          onChange={(e) => updateCell(i, "joining_date", e.target.value)}
-                          className="h-8 w-[130px] text-xs"
-                          data-testid={`import-row-joining-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.vin || ""}
-                          onChange={(e) => updateCell(i, "vin", e.target.value)}
-                          placeholder="MBX0007..."
-                          className="h-8 min-w-[145px] font-mono text-xs uppercase"
-                          data-testid={`import-row-vin-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          value={r.rental_ends || ""}
-                          onChange={(e) => updateCell(i, "rental_ends", e.target.value)}
-                          placeholder="YYYY-MM-DD"
-                          className="h-8 w-[115px] font-mono text-xs"
-                          data-testid={`import-row-rental-ends-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={r.daily_rent || ""}
-                          onChange={(e) => updateCell(i, "daily_rent", e.target.value)}
-                          className="h-8 w-[85px] text-xs"
-                          data-testid={`import-row-rent-${i}`}
-                        />
-                      </td>
-                      <td>
-                        <Select value={statusVal} onValueChange={(v) => updateStatusCell(i, v)}>
-                          <SelectTrigger className="h-8 w-[108px] text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Active">Active</SelectItem>
-                            <SelectItem value="available">available</SelectItem>
-                            <SelectItem value="rented">rented</SelectItem>
-                            <SelectItem value="Inactive">Inactive</SelectItem>
-                            <SelectItem value="Suspended">Suspended</SelectItem>
-                            <SelectItem value="Maintenance">Maintenance</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td>
-                        <Input
-                          value={r.details || ""}
-                          onChange={(e) => updateCell(i, "details", e.target.value)}
-                          placeholder="Details"
-                          className="h-8 min-w-[115px] text-xs"
-                          data-testid={`import-row-details-${i}`}
-                        />
-                      </td>
+                      {(isDriversOnly || showAll) && (
+                        <>
+                          <td>
+                            <Input
+                              value={r.name || ""}
+                              onChange={(e) => updateCell(i, "name", e.target.value)}
+                              placeholder="Driver name"
+                              className="h-8 min-w-[125px] text-xs"
+                              data-testid={`import-row-name-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.driver_code || ""}
+                              onChange={(e) => updateCell(i, "driver_code", e.target.value)}
+                              placeholder="R39D-TUP001"
+                              className="h-8 min-w-[115px] font-mono text-xs uppercase"
+                              data-testid={`import-row-code-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.mobile || ""}
+                              onChange={(e) => updateCell(i, "mobile", e.target.value)}
+                              placeholder="10-digit phone"
+                              className="h-8 min-w-[110px] font-mono text-xs"
+                              data-testid={`import-row-mobile-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.reg_no || ""}
+                              onChange={(e) => updateCell(i, "reg_no", e.target.value)}
+                              placeholder="TUP001 - ..."
+                              className="h-8 min-w-[140px] font-mono text-xs"
+                              data-testid={`import-row-reg-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.package || ""}
+                              onChange={(e) => updateCell(i, "package", e.target.value)}
+                              placeholder="Silver Package"
+                              className="h-8 min-w-[120px] text-xs"
+                              data-testid={`import-row-package-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.city || ""}
+                              onChange={(e) => updateCell(i, "city", e.target.value)}
+                              placeholder="Tiruppur"
+                              className="h-8 min-w-[105px] text-xs"
+                              data-testid={`import-row-city-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              type="date"
+                              value={r.joining_date || ""}
+                              onChange={(e) => updateCell(i, "joining_date", e.target.value)}
+                              className="h-8 w-[130px] text-xs"
+                              data-testid={`import-row-joining-${i}`}
+                            />
+                          </td>
+                        </>
+                      )}
+                      {isVehiclesOnly && (
+                        <>
+                          <td>
+                            <Input
+                              value={r.reg_no || ""}
+                              onChange={(e) => updateCell(i, "reg_no", e.target.value)}
+                              placeholder="141 - KA51AJ2624"
+                              className="h-8 min-w-[150px] font-mono text-xs"
+                              data-testid={`import-row-reg-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Select value={statusVal} onValueChange={(v) => updateStatusCell(i, v)}>
+                              <SelectTrigger className="h-8 w-[112px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="available">available</SelectItem>
+                                <SelectItem value="rented">rented</SelectItem>
+                                <SelectItem value="Active">Active</SelectItem>
+                                <SelectItem value="Maintenance">Maintenance</SelectItem>
+                                <SelectItem value="Inactive">Inactive</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td>
+                            <Input
+                              value={r.name || ""}
+                              onChange={(e) => updateCell(i, "name", e.target.value)}
+                              placeholder="Not Assigned"
+                              className="h-8 min-w-[130px] text-xs"
+                              data-testid={`import-row-name-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.city || ""}
+                              onChange={(e) => updateCell(i, "city", e.target.value)}
+                              placeholder="Bengaluru"
+                              className="h-8 min-w-[110px] text-xs"
+                              data-testid={`import-row-city-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.vin || ""}
+                              onChange={(e) => updateCell(i, "vin", e.target.value)}
+                              placeholder="MBX0007..."
+                              className="h-8 min-w-[165px] font-mono text-xs uppercase"
+                              data-testid={`import-row-vin-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.rental_ends || ""}
+                              onChange={(e) => updateCell(i, "rental_ends", e.target.value)}
+                              placeholder="(blank)"
+                              className="h-8 w-[120px] font-mono text-xs"
+                              data-testid={`import-row-rental-ends-${i}`}
+                            />
+                          </td>
+                        </>
+                      )}
+                      {showAll && (
+                        <>
+                          <td>
+                            <Input
+                              value={r.vin || ""}
+                              onChange={(e) => updateCell(i, "vin", e.target.value)}
+                              placeholder="MBX0007..."
+                              className="h-8 min-w-[145px] font-mono text-xs uppercase"
+                              data-testid={`import-row-vin-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              value={r.rental_ends || ""}
+                              onChange={(e) => updateCell(i, "rental_ends", e.target.value)}
+                              placeholder="YYYY-MM-DD"
+                              className="h-8 w-[115px] font-mono text-xs"
+                              data-testid={`import-row-rental-ends-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={r.daily_rent || ""}
+                              onChange={(e) => updateCell(i, "daily_rent", e.target.value)}
+                              className="h-8 w-[85px] text-xs"
+                              data-testid={`import-row-rent-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Select value={statusVal} onValueChange={(v) => updateStatusCell(i, v)}>
+                              <SelectTrigger className="h-8 w-[108px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Active">Active</SelectItem>
+                                <SelectItem value="available">available</SelectItem>
+                                <SelectItem value="rented">rented</SelectItem>
+                                <SelectItem value="Inactive">Inactive</SelectItem>
+                                <SelectItem value="Suspended">Suspended</SelectItem>
+                                <SelectItem value="Maintenance">Maintenance</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td>
+                            <Input
+                              value={r.details || ""}
+                              onChange={(e) => updateCell(i, "details", e.target.value)}
+                              placeholder="Details"
+                              className="h-8 min-w-[115px] text-xs"
+                              data-testid={`import-row-details-${i}`}
+                            />
+                          </td>
+                        </>
+                      )}
                       <td className="text-right">
                         <Button
                           type="button"

@@ -228,7 +228,7 @@ export default function DriversPage() {
       <DriverFormDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} driver={edit} onSaved={load} />
       <AdjustmentsDialog open={!!adj} onOpenChange={(o) => !o && setAdj(null)} driver={adj} onSaved={load} />
       <VehicleAssignDialog open={!!veh} onOpenChange={(o) => !o && setVeh(null)} driver={veh} onSaved={load} />
-      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers_and_vehicles" onImported={load} />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers" onImported={load} />
     </div>
   );
 }
