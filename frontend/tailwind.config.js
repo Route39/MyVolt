@@ -8,6 +8,12 @@ module.exports = {
     "./public/index.html"
   ],
   theme: {
+    screens: {
+      w375: '375px', w425: '425px', sm: '640px', md: '768px',
+      w992: '992px', lg: '1024px', w1200: '1200px', xl: '1280px',
+      w1360: '1360px', w1440: '1440px', '2xl': '1536px', w1540: '1540px',
+      w1600: '1600px', w1920: '1920px',
+    },
     extend: {
       borderRadius: {
         lg: 'var(--radius)',

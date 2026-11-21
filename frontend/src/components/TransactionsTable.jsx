@@ -5,13 +5,19 @@ import { NOT_RECORDED } from "@/components/Vehicles";
 import { SortTh, SkeletonRows, EmptyState } from "@/components/kit";
 import { fmtDate, fmtDateTime, inr } from "@/lib/format";
 
+// Imported vehicles look like "BLR10 - KA05AR1842": left = vehicle ID, right = reg no.
+const splitVeh = (no) => {
+  const m = (no || "").trim().match(/^(\S+)\s+-\s+(.+)$/);
+  return m ? [m[1], m[2].trim()] : ["", (no || "").trim()];
+};
+
 const COLS = {
   payment_date: ["Payment date", (t) => fmtDate(t.payment_date)],
   driver: ["Driver", (t) => <div><div className="font-medium">{t.driver_name}</div><div className="font-mono text-[11px] text-muted-foreground">{t.driver_code}</div></div>],
   vehicle: ["Vehicle", (t) => (
     <div className="font-mono text-xs">
-      <div className={t.vehicle_id ? "font-semibold" : "font-sans text-[11px] italic text-muted-foreground"}>{t.vehicle_id || NOT_RECORDED}</div>
-      <div className="text-[11px] text-muted-foreground">{t.vehicle_no}</div>
+      <div className={splitVeh(t.vehicle_no)[0] ? "font-semibold" : "font-sans text-[11px] italic text-muted-foreground"}>{splitVeh(t.vehicle_no)[0] || NOT_RECORDED}</div>
+      <div className="text-[11px] text-muted-foreground">{splitVeh(t.vehicle_no)[1]}</div>
     </div>
   )],
   city: ["City", (t) => t.city],
@@ -38,7 +44,7 @@ const SORT_KEYS = { payment_date: "payment_date", driver: "driver_name", amount:
 export const TransactionsTable = ({ rows, cols = ALL_COLS, onRowClick, testId = "txn-table", empty = "No transactions found", sort, onSort, loading, footer }) => (
   <div className="r-card overflow-hidden" data-testid={testId}>
     <div className="max-h-[64vh] overflow-auto">
-    <table className="data-table w-full">
+    <table className="data-table w-full min-w-[900px] whitespace-nowrap">
       <thead><tr>{cols.map((c) => (sort && SORT_KEYS[c]
         ? <SortTh key={c} k={SORT_KEYS[c]} label={COLS[c][0]} sort={sort} onSort={onSort} className={c === "amount" ? "num" : ""} />
         : <th key={c} className={c === "amount" ? "num" : ""}>{COLS[c][0]}</th>))}</tr></thead>

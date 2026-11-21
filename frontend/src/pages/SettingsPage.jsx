@@ -26,12 +26,12 @@ const RentRules = () => {
   };
   if (!s) return null;
   const Row = ({ title, hint, children }) => (
-    <div className="flex items-center justify-between gap-4 border-b py-3 last:border-0">
+    <div className="flex items-center justify-between gap-3 border-b py-3 last:border-0 sm:gap-4 [&>*:last-child]:shrink-0">
       <div><div className="text-[13px] font-semibold">{title}</div><div className="text-xs text-[#64748B]">{hint}</div></div>{children}
     </div>
   );
   return (
-    <section className="r-card px-4 py-2" data-testid="rent-rules">
+    <section className="r-card px-3 py-2 sm:px-4" data-testid="rent-rules">
       <div className="r-label pt-2">Rent rules</div>
       <Row title="Allow future dates" hint="Staff can record advance rent for upcoming dates"><Switch checked={s.allow_future_dates} onCheckedChange={(v) => save({ ...s, allow_future_dates: v })} data-testid="rule-future-dates" /></Row>
       <Row title="Allow multiple payments per date" hint="Without this, extra payments must be marked as split"><Switch checked={s.allow_multiple_per_date} onCheckedChange={(v) => save({ ...s, allow_multiple_per_date: v })} data-testid="rule-multiple-per-date" /></Row>
@@ -76,7 +76,7 @@ const ChangePasswordCard = () => {
   };
 
   return (
-    <section className="r-card p-4" data-testid="change-password-card">
+    <section className="r-card p-3 sm:p-4" data-testid="change-password-card">
       <div className="mb-3 flex items-center gap-2">
         <KeyRound className="h-4 w-4 text-[#B91C1C]" />
         <div className="r-label">Change password</div>
@@ -118,7 +118,7 @@ const ChangePasswordCard = () => {
           />
         </div>
         <div className="sm:col-span-3 flex justify-end">
-          <Button type="submit" disabled={busy} data-testid="change-password-submit">
+          <Button type="submit" className="w-full sm:w-auto" disabled={busy} data-testid="change-password-submit">
             {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             Update Password
           </Button>
@@ -137,7 +137,7 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl space-y-4 fade-up">
       <PageHeader title="Settings" subtitle="Your profile, password, and system rules" />
-      <section className="r-card p-4" data-testid="profile-card">
+      <section className="r-card p-3 sm:p-4" data-testid="profile-card">
         <div className="r-label mb-3">Active session</div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -147,7 +147,7 @@ export default function SettingsPage() {
               <div className="text-xs text-[#64748B]">{user.mobile || user.email} · {ROLE_LABEL[user.role]}</div>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={handleLogout} data-testid="settings-logout-button">
+          <Button variant="outline" size="sm" className="w-full w425:w-auto" onClick={handleLogout} data-testid="settings-logout-button">
             <LogOut className="mr-1.5 h-4 w-4" />
             Logout
           </Button>

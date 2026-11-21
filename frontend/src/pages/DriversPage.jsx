@@ -74,14 +74,14 @@ export default function DriversPage() {
         title="Driver Management"
         subtitle={`${rows.length} drivers · Driver IDs are permanent`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button variant="outline" onClick={exportXlsx} disabled={exporting} data-testid="export-drivers-button">
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export Excel
             </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-drivers-button">
               <FileUp className="mr-1.5 h-4 w-4" />
-              Import Excel / PDF / Image
+              <span className="hidden w425:inline">Import Excel / PDF / Image</span><span className="w425:hidden">Import</span>
             </Button>
             <Button onClick={() => setEdit(null)} data-testid="add-driver-button">
               <Plus className="mr-1.5 h-4 w-4" />
@@ -92,14 +92,14 @@ export default function DriversPage() {
       />
 
       <section className="space-y-2.5" data-testid="drivers-summary-bar">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Showing drivers" value={filtered.length} hint={city === "all" ? "All cities" : city} testId="drivers-kpi-total" />
           <StatCard label="Active drivers" value={activeCount} tone="st-verified" testId="drivers-kpi-active" />
           <StatCard label="Assigned vehicles" value={assignedCount} tone="st-partial" testId="drivers-kpi-assigned" />
           <StatCard label="Total daily rent" value={inr(totalRent)} tone="st-verified" hint="Expected daily fleet rent" testId="drivers-kpi-rent" />
         </div>
         {cityStats.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="drivers-city-pills">
+          <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-1 [&>*]:shrink-0 md:flex-wrap md:overflow-visible" data-testid="drivers-city-pills">
             <span className="inline-flex items-center gap-1 pr-1 text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
               <MapPin className="h-3 w-3" /> Cities:
             </span>
@@ -132,9 +132,9 @@ export default function DriversPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Driver, ID, Phone, Vehicle, Package…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="drivers-search" />
+          <Input placeholder="Search Driver, ID, Phone, Vehicle, Package…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="drivers-search" />
           <Select value={city} onValueChange={setCity}>
-            <SelectTrigger className="h-9 w-[160px]" data-testid="drivers-filter-city">
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="drivers-filter-city">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -145,7 +145,7 @@ export default function DriversPage() {
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-9 w-[150px]" data-testid="drivers-filter-status">
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="drivers-filter-status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -156,7 +156,7 @@ export default function DriversPage() {
           </Select>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table w-full" data-testid="drivers-table">
+          <table className="data-table w-full min-w-[1000px] whitespace-nowrap" data-testid="drivers-table">
             <thead>
               <tr>
                 <th>Driver</th>
@@ -173,7 +173,7 @@ export default function DriversPage() {
             </thead>
             <tbody>
               {paged.slice.map((d) => {
-                const showVehIdBadge = d.current_vehicle_id && !(d.vehicle_no || "").includes(d.current_vehicle_id);
+                const showVehIdBadge = false; // was: d.current_vehicle_id && !(d.vehicle_no || "").includes(d.current_vehicle_id);
                 return (
                   <tr key={d.id} data-testid={`driver-row-${d.id}`}>
                     <td className="font-medium">{d.name}</td>
@@ -198,7 +198,7 @@ export default function DriversPage() {
                     <td className="font-mono text-xs">{d.joining_date || "—"}</td>
                     <td className="font-semibold">{inr(d.daily_rent)}</td>
                     <td>{d.status}</td>
-                    <td className="text-right">
+                    <td className="whitespace-nowrap text-right">
                       <Button size="icon" variant="ghost" className="h-8 w-8" title="Open calendar" onClick={() => nav(`/calendar?driver=${d.id}`)} data-testid={`driver-calendar-${d.id}`}>
                         <CalendarDays className="h-4 w-4" />
                       </Button>

@@ -88,7 +88,7 @@ const UserDialog = ({ open, onOpenChange, user, onSaved }) => {
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} data-testid="user-form-active" />Active</label>
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" data-testid="user-form-save">Save</Button></div>
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" data-testid="user-form-save">Save</Button></div>
         </form>
       </DialogContent>
     </Dialog>
@@ -107,15 +107,15 @@ export default function StaffPage() {
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Staff Management" subtitle="Staff enter payments, Accounts verify them, Admins manage everything"
-        actions={<Button onClick={() => setEdit(null)} data-testid="add-user-button"><Plus className="mr-1.5 h-4 w-4" />Add user</Button>} />
+        actions={<Button className="w-full sm:w-auto" onClick={() => setEdit(null)} data-testid="add-user-button"><Plus className="mr-1.5 h-4 w-4" />Add user</Button>} />
       <div className="r-card overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <Input placeholder="Search name or mobile number" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-xs" data-testid="users-search" />
-        <Select value={role} onValueChange={setRole}><SelectTrigger className="h-9 w-[150px]" data-testid="users-filter-role"><SelectValue /></SelectTrigger>
+        <Input placeholder="Search name or mobile number" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-xs" data-testid="users-search" />
+        <Select value={role} onValueChange={setRole}><SelectTrigger className="h-9 w-full w425:w-[150px]" data-testid="users-filter-role"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">All roles</SelectItem>{Object.entries(ROLE_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent></Select>
       </div>
       <div className="overflow-x-auto">
-        <table className="data-table w-full" data-testid="users-table">
+        <table className="data-table w-full min-w-[560px] whitespace-nowrap" data-testid="users-table">
           <thead><tr><th>Name</th><th>Mobile Number</th><th>Role</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {paged.slice.map((u) => (

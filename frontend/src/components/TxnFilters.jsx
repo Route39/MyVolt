@@ -21,12 +21,12 @@ export const TxnFilters = ({ value, onChange, showStatus, range }) => {
   const set = (k) => (v) => onChange({ ...value, [k]: v?.target ? v.target.value : v ?? "" });
   const dirty = Object.entries(value).some(([k, v]) => v !== EMPTY_FILTERS[k]);
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7" data-testid="txn-filters">
+    <div className="grid grid-cols-1 gap-2 w375:grid-cols-2 md:grid-cols-4 w1600:grid-cols-7" data-testid="txn-filters">
       <Input placeholder="Driver name" value={value.driver_name} onChange={set("driver_name")} className="h-9" data-testid="filter-driver-name" />
       <Input placeholder="Vehicle ID / reg. no." value={value.vehicle} onChange={set("vehicle")} className="h-9" data-testid="filter-vehicle" />
       <Input placeholder="UTR" value={value.utr} onChange={set("utr")} className="h-9 font-mono" data-testid="filter-utr" />
       {range ? (
-        <div className="col-span-2 flex gap-2 md:col-span-1 xl:col-span-1">
+        <div className="col-span-1 flex gap-2 w375:col-span-2 md:col-span-1">
           <DateField value={value.date_from} onChange={set("date_from")} placeholder="From" testId="filter-date-from" className="flex-1" />
           <DateField value={value.date_to} onChange={set("date_to")} placeholder="To" testId="filter-date-to" className="flex-1" />
         </div>

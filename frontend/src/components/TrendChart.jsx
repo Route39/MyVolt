@@ -28,7 +28,7 @@ export const TrendChart = ({ series, height = 240 }) => {
         <ResponsiveContainer width="100%" height={height} minWidth={0}>
           <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#EEF0F3" vertical={false} />
-            <XAxis dataKey="date" tickFormatter={short} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="date" tickFormatter={short} minTickGap={12} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} />
             <YAxis tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)} tick={{ fontSize: 11, fill: "#64748B" }} axisLine={false} tickLine={false} width={40} />
             <Tooltip formatter={(v, n) => [inr(v), n]} labelFormatter={short} contentStyle={{ fontSize: 12, borderRadius: 6, borderColor: "#E5E7EB" }} />
             <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />

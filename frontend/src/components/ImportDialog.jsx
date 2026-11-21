@@ -228,9 +228,9 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] w-[97vw] max-w-[1320px] flex-col overflow-hidden" data-testid="import-dialog">
+      <DialogContent className="flex max-h-[94vh] w-[calc(100%-16px)] max-w-[1320px] flex-col overflow-y-auto md:overflow-hidden w1920:max-w-[1600px]" data-testid="import-dialog">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 pr-6 text-base sm:text-lg">
             <FileSpreadsheet className="h-5 w-5 text-[#B91C1C]" />
             {isDriversOnly
               ? "Import Drivers (Excel / PDF / Image / CSV)"
@@ -238,7 +238,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                 ? "Import Vehicles (Excel / PDF / Image / CSV)"
                 : "Import Drivers & Vehicles (Excel / PDF / Image / CSV)"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="hidden sm:block">
             {isDriversOnly
               ? "Upload your Drivers sheet (Excel, PDF, Image, or CSV). Columns: Driver, ID, Phone, Vehicle, Package, City, Joining Date."
               : isVehiclesOnly
@@ -249,7 +249,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-[#CBD5E1] bg-[#F8FAFB] p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#DC2626] px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#B91C1C]">
+            <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#DC2626] w425:w-auto px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#B91C1C]">
               {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               <span>{parsing ? "Extracting data..." : filename ? "Upload another file" : "Choose File (Excel / PDF / Image)"}</span>
               <input
@@ -265,7 +265,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 bg-white text-xs"
+              className="h-8 w-full bg-white text-xs w425:w-auto"
               disabled={downloadingTpl}
               onClick={downloadTemplate}
               data-testid="import-download-template"
@@ -286,10 +286,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Label className="text-xs text-[#64748B]">Import mode</Label>
+            <div className="flex w-full items-center gap-2 w425:w-auto">
+              <Label className="shrink-0 text-xs text-[#64748B]">Import mode</Label>
               <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger className="h-8 w-[220px] bg-white text-xs" data-testid="import-mode-select">
+                <SelectTrigger className="h-8 w-full bg-white text-xs w425:w-[220px]" data-testid="import-mode-select">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -332,7 +332,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
             </Button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {missingMobileCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                 <AlertTriangle className="h-3 w-3" />
@@ -378,7 +378,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
 
         <div className="min-h-[240px] flex-1 overflow-auto rounded-md border bg-white">
           {rows.length > 0 ? (
-            <table className="data-table w-full" data-testid="import-preview-table">
+            <table className="data-table w-full whitespace-nowrap" data-testid="import-preview-table">
               <thead>
                 <tr>
                   <th>#</th>
@@ -675,7 +675,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               </div>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button type="button" variant="outline" disabled={committing} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

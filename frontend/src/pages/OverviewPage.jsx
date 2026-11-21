@@ -25,11 +25,11 @@ export const useOverview = () => {
 };
 
 export const MonthKpis = ({ data }) => {
-  if (!data) return <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[92px]" />)}</div>;
+  if (!data) return <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[92px]" />)}</div>;
   const m = data.month;
   const pct = m.expected ? (m.verified / m.expected) * 100 : 0;
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
       <StatCard label="Rent expected (MTD)" value={inr(m.expected)} hint={`${data.counts.active_drivers} active drivers`} testId="ov-expected" />
       <StatCard label="Verified collection" value={inr(m.verified)} tone="st-verified" hint={`${pct.toFixed(1)}% of expected`} testId="ov-verified"><Progress value={pct} /></StatCard>
       <StatCard label="Pending verification" value={inr(m.pending)} tone="st-pending" hint={`${data.counts.pending_txns} payments waiting`} testId="ov-pending" />
@@ -46,12 +46,12 @@ export default function OverviewPage() {
     <div className="space-y-5 fade-up">
       <PageHeader title="Overview" subtitle={`Fleet rent collection for ${MONTHS[now.getMonth()]} ${now.getFullYear()} · only Accounts-verified payments count as collected`} />
       <MonthKpis data={data} />
-      <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+      <div className="grid gap-4 w1200:grid-cols-[1fr_300px] w1440:grid-cols-[1fr_340px]">
         <section className="r-card min-w-0 p-4">
           <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold">Collection trend · last 14 days</h2></div>
           {data ? <TrendChart series={data.series} /> : <Skeleton className="h-[240px]" />}
         </section>
-        <div className="space-y-2.5">
+        <div className="grid content-start gap-2.5 md:grid-cols-2 w1200:grid-cols-1">
           <Quick to="/board" icon={Users} label="All Drivers" hint="Today's collection by driver" testId="quick-board" />
           <Quick to="/calendar" icon={CalendarDays} label="Rent Calendar" hint="Enter a payment for a driver" testId="quick-calendar" />
           {hasRole("accounts", "admin") && <Quick to="/verification" icon={ShieldCheck} label="Accounts Verification" hint={data ? `${data.counts.pending_txns} pending` : "Review payments"} testId="quick-verification" />}
@@ -70,7 +70,7 @@ export default function OverviewPage() {
             <h2 className="text-sm font-bold">Fleet by City</h2>
           </div>
           <div className="overflow-x-auto">
-            <table className="data-table w-full">
+            <table className="data-table w-full min-w-[640px] whitespace-nowrap">
               <thead>
                 <tr>
                   <th>City</th>

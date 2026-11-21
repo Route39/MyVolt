@@ -10,10 +10,10 @@ export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit }) =
   const nav = useNavigate();
   const { user, hasRole } = useUser();
   if (!day) return null;
-  const canSubmit = hasRole("staff", "admin");
+  const canSubmit = hasRole("staff", "accounts", "admin");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]" data-testid="day-dialog">
+      <DialogContent className="max-h-[90vh] w-[calc(100%-24px)] overflow-y-auto sm:max-w-[520px]" data-testid="day-dialog">
         <DialogHeader>
           <DialogTitle className="text-base">Payments on {fmtDate(day.date)}</DialogTitle>
           <DialogDescription>{day.txns.length} payment{day.txns.length !== 1 ? "s" : ""} recorded for this date</DialogDescription>
@@ -25,8 +25,8 @@ export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit }) =
                 <div className="text-base font-semibold">{inr(t.amount)}</div>
                 <StatusPill status={t.status} testId={`day-txn-status-${t.id}`} />
               </div>
-              <div className="mt-1 font-mono text-xs text-muted-foreground">{t.id} · UTR {t.utr} · {t.method}{t.is_split ? " · split" : ""}</div>
-              <div className="font-mono text-xs text-muted-foreground" data-testid={`day-txn-vehicle-${t.id}`}>Vehicle {t.vehicle_id || "ID not recorded"} · {t.vehicle_no}</div>
+              <div className="mt-1 break-all font-mono text-xs text-muted-foreground">{t.id} · UTR {t.utr} · {t.method}{t.is_split ? " · split" : ""}</div>
+              <div className="break-all font-mono text-xs text-muted-foreground" data-testid={`day-txn-vehicle-${t.id}`}>Vehicle {t.vehicle_id || "ID not recorded"} · {t.vehicle_no}</div>
               <div className="text-xs text-muted-foreground">Entered by {t.submitted_by_name}</div>
               {t.status === "pending" && <div className="mt-1 text-xs font-medium text-[oklch(0.46_0.12_50)]">Pending Accounts Verification</div>}
               {t.status === "rejected" && <div className="st-rejected st-pill mt-2 rounded p-2 text-xs"><b>Reason:</b> {t.rejection_reason}</div>}
@@ -44,7 +44,7 @@ export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit }) =
           ))}
         </div>
         {canSubmit && (
-          <Button variant="outline" onClick={onAddSplit} data-testid="day-add-split-button">
+          <Button variant="outline" className="w-full sm:w-auto" onClick={onAddSplit} data-testid="day-add-split-button">
             <Plus className="mr-1.5 h-4 w-4" />Add split payment for this date
           </Button>
         )}

@@ -90,7 +90,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               ))}
             </div>
           </F>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={busy} data-testid="driver-form-save">Save driver</Button>
           </div>
@@ -124,7 +124,7 @@ export const AdjustmentsDialog = ({ open, onOpenChange, driver, onSaved }) => {
         <DialogHeader><DialogTitle>Rental adjustments · {driver?.name}</DialogTitle><DialogDescription>Approved waivers reduce expected rent for that date.</DialogDescription></DialogHeader>
         <div className="max-h-[220px] space-y-2 overflow-y-auto">
           {items.map((a) => (
-            <div key={a.id} className="flex justify-between rounded-md border p-2.5 text-sm">
+            <div key={a.id} className="flex justify-between gap-3 rounded-md border p-2.5 text-sm">
               <div><div className="font-medium">{fmtDate(a.date)} · −{inr(a.amount)}</div><div className="text-xs text-muted-foreground">{a.reason}</div></div>
               <div className="text-right text-[11px] text-muted-foreground">{a.by}<br />{fmtDateTime(a.at)}</div>
             </div>

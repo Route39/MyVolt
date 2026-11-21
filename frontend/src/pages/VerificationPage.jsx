@@ -38,7 +38,7 @@ export default function VerificationPage() {
     <div className="space-y-4 fade-up">
       <PageHeader title="Accounts Verification" subtitle="Check each screenshot against its UTR before approving. Only approved payments count as collected." />
       {sum && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
           <Stat label="Pending verification" value={sum.pending_count} cls="st-pending" testId="summary-pending-count" />
           <Stat label="Verified today" value={sum.approved_today} cls="st-verified" testId="summary-approved-today" />
           <Stat label="Rejected today" value={sum.rejected_today} cls="st-rejected" testId="summary-rejected-today" />
@@ -47,7 +47,7 @@ export default function VerificationPage() {
       )}
       <div className="r-card space-y-3 p-3">
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList data-testid="verification-tabs">
+        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto" data-testid="verification-tabs">
           <TabsTrigger value="pending" data-testid="tab-pending">Pending</TabsTrigger>
           <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
           <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected</TabsTrigger>

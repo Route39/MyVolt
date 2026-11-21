@@ -21,7 +21,7 @@ export const useVehicles = (open = true) => {
 export const VehicleSelect = ({ vehicles, value, onChange, testId, placeholder = "Select vehicle", allowNone }) => (
   <Select value={value || (allowNone ? "none" : "")} onValueChange={(v) => onChange(v === "none" ? null : v)}>
     <SelectTrigger className="h-10" data-testid={testId}><SelectValue placeholder={placeholder} /></SelectTrigger>
-    <SelectContent>
+    <SelectContent className="max-w-[calc(100vw-24px)]">
       {allowNone && <SelectItem value="none">No vehicle</SelectItem>}
       {vehicles.map((v) => (
         <SelectItem key={v.vehicle_id} value={v.vehicle_id} data-testid={`${testId}-option-${v.vehicle_id}`}>
@@ -72,7 +72,7 @@ export const VehicleAssignDialog = ({ open, onOpenChange, driver, onSaved }) => 
             <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Old vehicle sent for service" data-testid="assign-vehicle-reason" />
           </div>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={busy || (vid === null && !driver?.current_vehicle_id)} onClick={save} data-testid="assign-vehicle-save">Save change</Button>
         </div>
@@ -85,7 +85,7 @@ export const AssignmentHistory = ({ items }) => (
   <section>
     <h3 className="mb-2 text-sm font-semibold">Vehicle assignment history</h3>
     <div className="overflow-x-auto rounded-lg border bg-white">
-      <table className="data-table w-full" data-testid="assignment-history-table">
+      <table className="data-table w-full min-w-[720px] whitespace-nowrap" data-testid="assignment-history-table">
         <thead><tr><th>Vehicle ID</th><th>Registration</th><th>Start</th><th>End</th><th>Changed by</th><th>Reason</th></tr></thead>
         <tbody>
           {items.map((a) => (

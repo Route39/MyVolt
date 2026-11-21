@@ -45,7 +45,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#F4F6F8] lg:grid lg:grid-cols-12">
-      <section className="relative flex flex-col justify-between bg-[#101820] px-6 py-8 text-white sm:px-10 lg:col-span-5 lg:px-12 lg:py-12">
+      <section className="relative flex flex-col justify-between bg-[#101820] px-5 py-6 text-white sm:px-10 sm:py-8 lg:col-span-5 lg:px-12 lg:py-12">
         <div>
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#DC2626] text-white shadow-sm">
@@ -60,7 +60,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="mt-10 lg:mt-16">
+          <div className="mt-6 md:mt-10 lg:mt-16">
             <div className="inline-flex items-center gap-1.5 rounded-full border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-1 text-[11px] font-semibold text-[#EF4444]">
               <ShieldCheck className="h-3.5 w-3.5" />
               Enterprise Fleet Portal
@@ -73,7 +73,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <div className="mt-8 space-y-4">
+          <div className="mt-8 hidden space-y-4 md:block">
             {FEATURES.map(([title, desc]) => (
               <div key={title} className="flex items-start gap-3">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#EF4444]" />
@@ -86,14 +86,14 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="mt-10 border-t border-white/10 pt-5 text-xs text-[#7C8A97]">
+        <div className="mt-10 hidden border-t border-white/10 pt-5 md:block text-xs text-[#7C8A97]">
           © {new Date().getFullYear()} Route39 Mobility Pvt Ltd — MyVolt Operations
         </div>
       </section>
 
-      <section className="flex items-center justify-center px-4 py-10 sm:px-8 lg:col-span-7 lg:py-12">
+      <section className="flex items-center justify-center px-4 py-6 sm:px-8 sm:py-10 lg:col-span-7 lg:py-12">
         <div className="w-full max-w-[440px] space-y-4 fade-up">
-          <div className="r-card p-6 sm:p-8 shadow-sm">
+          <div className="r-card p-5 shadow-sm sm:p-8">
             <div className="mb-6">
               <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B91C1C]">MyVolt Portal</div>
               <h2 className="mt-1 font-display text-2xl font-bold text-[#101820]">Sign in to your account</h2>

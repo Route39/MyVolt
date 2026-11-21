@@ -9,20 +9,20 @@ import { fmtDate, isoDate, todayIso } from "@/lib/format";
 export const PageHeader = ({ title, subtitle, actions }) => (
   <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
     <div>
-      <h1 className="text-[22px] font-bold leading-tight tracking-tight text-[#17212B]" data-testid="page-heading">{title}</h1>
+      <h1 className="text-[19px] font-bold leading-tight sm:text-[22px] w1600:text-[24px] tracking-tight text-[#17212B]" data-testid="page-heading">{title}</h1>
       {subtitle && <p className="mt-0.5 text-[13px] text-[#64748B]">{subtitle}</p>}
     </div>
-    {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div>}
   </div>
 );
 
 export const StatCard = ({ label, value, hint, tone, testId, children }) => (
-  <div className="r-card px-4 py-3.5 transition-shadow hover:shadow-md">
+  <div className="r-card min-w-0 px-3 py-3 sm:px-4 sm:py-3.5 transition-shadow hover:shadow-md">
     <div className="flex items-center gap-1.5 r-label">
       {tone && <span className={`${tone} st-dot h-1.5 w-1.5 rounded-full`} />}
       {label}
     </div>
-    <div className="fig mt-1.5 text-[22px] leading-none text-[#17212B]" data-testid={testId}>{value}</div>
+    <div className="fig mt-1.5 break-words text-[19px] leading-none sm:text-[22px] w1600:text-[24px] text-[#17212B]" data-testid={testId}>{value}</div>
     {hint && <div className="mt-1.5 text-[11.5px] text-[#64748B]">{hint}</div>}
     {children}
   </div>
@@ -63,7 +63,7 @@ export const Pager = ({ page, pageSize, total, onPage, testId = "pager" }) => {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total <= 0) return null;
   return (
-    <div className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-[#64748B]" data-testid={testId}>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2 text-xs text-[#64748B]" data-testid={testId}>
       <span>{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</span>
       <div className="flex items-center gap-1">
         <Button variant="outline" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => onPage(page - 1)} data-testid={`${testId}-prev`}><ChevronLeft className="h-3.5 w-3.5" /></Button>
@@ -107,9 +107,9 @@ export const DateStepper = ({ value, onChange }) => {
     onChange(isoDate(d));
   };
   return (
-    <div className="flex items-center gap-1.5" data-testid="date-stepper">
+    <div className="flex flex-wrap items-center gap-1.5" data-testid="date-stepper">
       <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shift(-1)} data-testid="date-prev"><ChevronLeft className="h-4 w-4" /></Button>
-      <DateField value={value} onChange={(v) => v && onChange(v)} testId="date-picker" className="min-w-[150px] font-medium text-[#17212B]" />
+      <DateField value={value} onChange={(v) => v && onChange(v)} testId="date-picker" className="min-w-0 flex-1 sm:min-w-[150px] sm:flex-none font-medium text-[#17212B]" />
       <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => shift(1)} data-testid="date-next"><ChevronRight className="h-4 w-4" /></Button>
       <Button variant="outline" className="h-9" disabled={value === todayIso()} onClick={() => onChange(todayIso())} data-testid="date-today">Today</Button>
     </div>

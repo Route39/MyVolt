@@ -26,7 +26,7 @@ const QuickPicks = ({ onPick }) => {
     api.get("/drivers").then((r) => setDrivers(r.data.slice(0, 8)));
   }, []);
   return (
-    <div className="r-card p-8 text-center fade-up" data-testid="calendar-empty-state">
+    <div className="r-card p-5 text-center sm:p-8 fade-up" data-testid="calendar-empty-state">
       <CalendarSearch className="mx-auto h-7 w-7 text-[var(--r39-green)]" />
       <p className="mt-3 text-sm font-medium">Select a driver to open their rent calendar</p>
       <p className="text-xs text-muted-foreground">Search above, or pick one below</p>
@@ -83,7 +83,7 @@ export default function CalendarPage() {
   const onDayClick = (day) => {
     setSelected(day.date);
     if (day.txns.length) return setDayOpen(day);
-    if (!hasRole("staff", "admin")) return toast.info("No payment entered for this date");
+    if (!hasRole("staff", "accounts", "admin")) return toast.info("No payment entered for this date");
     setEntry({ mode: "new", date: day.date });
   };
   const driver = cal?.driver;
@@ -94,13 +94,13 @@ export default function CalendarPage() {
         actions={<div className="w-full sm:w-[420px]"><DriverSearch value={driver && driver.id === driverId ? driver : null} onSelect={(d) => go(d.id)} /></div>} />
       {!driverId && <QuickPicks onPick={(d) => go(d.id)} />}
       {cal && (
-        <div className="grid gap-4 xl:grid-cols-[320px_1fr] xl:grid-rows-[auto_1fr]">
-          <DriverCard driver={driver} onChangeVehicle={hasRole("staff", "admin") ? () => setChangeVehicle(true) : null} />
-          <div className="order-last space-y-4 xl:order-none xl:col-start-1 xl:row-start-2">
+        <div className="grid gap-4 w1200:grid-cols-[300px_1fr] w1440:grid-cols-[340px_1fr] w1920:grid-cols-[380px_1fr] w1200:grid-rows-[auto_1fr]">
+          <DriverCard driver={driver} onChangeVehicle={hasRole("staff", "accounts", "admin") ? () => setChangeVehicle(true) : null} />
+          <div className="order-last space-y-4 w1200:order-none w1200:col-start-1 w1200:row-start-2">
             <RentSummary title="Monthly financial summary" summary={cal.month_summary} prefix="month" />
             <RentSummary title="Since rent start" summary={cal.overall_summary} prefix="overall" />
           </div>
-          <div className="min-w-0 space-y-4 xl:col-start-2 xl:row-span-2 xl:row-start-1">
+          <div className="min-w-0 space-y-4 w1200:col-start-2 w1200:row-span-2 w1200:row-start-1">
             <RentCalendar ym={ym} loading={loading} days={cal.days} onDayClick={onDayClick} selectedDate={selected}
               onMonthChange={(v) => go(driverId, `${v.y}-${String(v.m + 1).padStart(2, "0")}`)} />
             <section>

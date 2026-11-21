@@ -15,13 +15,13 @@ import { fmtDate, fmtDateTime, inr } from "@/lib/format";
 
 const Row = ({ label, children, testId }) => (
   <div className="flex items-start justify-between gap-4 py-2">
-    <span className="text-[13px] text-muted-foreground">{label}</span>
-    <span className="text-right text-sm font-medium" data-testid={testId}>{children}</span>
+    <span className="max-w-[50%] shrink-0 text-[13px] text-muted-foreground">{label}</span>
+    <span className="min-w-0 break-all text-right text-sm font-medium" data-testid={testId}>{children}</span>
   </div>
 );
 
 const AuditTrail = ({ items }) => (
-  <section className="rounded-lg border bg-white p-4">
+  <section className="rounded-lg border bg-white p-3 sm:p-4">
     <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Audit trail</h3>
     <ol className="space-y-3" data-testid="txn-audit-trail">
       {items.map((a) => (
@@ -51,7 +51,7 @@ const RejectDialog = ({ open, onOpenChange, onConfirm, busy }) => {
             <button key={r} type="button" onClick={() => setRemarks(r)} className="rounded-full border px-2.5 py-1 text-xs hover:bg-muted">{r}</button>
           ))}
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button variant="destructive" disabled={remarks.trim().length < 3 || busy} onClick={() => onConfirm(remarks.trim())} data-testid="reject-confirm-button">Confirm rejection</Button>
         </div>
@@ -63,13 +63,14 @@ const RejectDialog = ({ open, onOpenChange, onConfirm, busy }) => {
 const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit }) => {
   const canVerify = ["accounts", "admin"].includes(user.role) && t.status === "pending";
   const own = t.submitted_by === user.id || t.last_modified_by === user.id;
+  const selfBlock = false;
   return (
     <div className="space-y-2">
-      {canVerify && own && <div className="flex gap-2 rounded-md bg-muted p-3 text-xs"><Info className="h-4 w-4 shrink-0" />You entered this payment, so another person must verify it.</div>}
+      {canVerify && selfBlock && <div className="flex gap-2 rounded-md bg-muted p-3 text-xs"><Info className="h-4 w-4 shrink-0" />You entered this payment, so another person must verify it.</div>}
       {canVerify && (
-        <div className="grid grid-cols-2 gap-2">
-          <Button disabled={own} onClick={onApprove} className="h-11 bg-[var(--r39-green)] hover:bg-[var(--r39-green-hover)]" data-testid="approve-payment-button"><Check className="mr-1.5 h-4 w-4" />APPROVE PAYMENT</Button>
-          <Button disabled={own} variant="outline" onClick={onReject} className="h-11 border-[#9F1239] text-[#9F1239] hover:bg-[#FFF1F2] hover:text-[#881337]" data-testid="reject-payment-button"><X className="mr-1.5 h-4 w-4" />REJECT PAYMENT</Button>
+        <div className="grid grid-cols-1 gap-2 w425:grid-cols-2">
+          <Button disabled={selfBlock} onClick={onApprove} className="h-11 bg-[var(--r39-green)] hover:bg-[var(--r39-green-hover)]" data-testid="approve-payment-button"><Check className="mr-1.5 h-4 w-4" />APPROVE PAYMENT</Button>
+          <Button disabled={selfBlock} variant="outline" onClick={onReject} className="h-11 border-[#9F1239] text-[#9F1239] hover:bg-[#FFF1F2] hover:text-[#881337]" data-testid="reject-payment-button"><X className="mr-1.5 h-4 w-4" />REJECT PAYMENT</Button>
         </div>
       )}
       {t.status === "rejected" && (user.role === "admin" || own) && (
@@ -122,13 +123,13 @@ export default function TransactionDetailPage() {
           <CalendarDays className="mr-1.5 h-4 w-4" />Open calendar
         </Button>
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] w1600:grid-cols-[1.3fr_1fr]">
         <ScreenshotViewer fileId={t.file_id} filename={`${t.id}_${t.utr}.png`} />
         <div className="space-y-4">
-          <section className="rounded-lg border bg-white p-4">
-            <div className="mb-2 flex items-baseline justify-between">
+          <section className="rounded-lg border bg-white p-3 sm:p-4">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h2 className="text-lg font-semibold" data-testid="txn-driver-name">{t.driver_name}</h2>
-              <span className="text-2xl font-semibold tracking-tight" data-testid="txn-amount">{inr(t.amount)}</span>
+              <span className="text-xl font-semibold tracking-tight sm:text-2xl" data-testid="txn-amount">{inr(t.amount)}</span>
             </div>
             <div className="divide-y">
               <Row label="Driver ID" testId="txn-driver-code"><span className="font-mono">{t.driver_code}</span></Row>

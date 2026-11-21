@@ -56,8 +56,8 @@ const ReportBuilder = () => {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-      <div className="r-card space-y-0.5 self-start p-1.5" data-testid="report-list">
+    <div className="grid gap-4 w1200:grid-cols-[240px_1fr] w1440:grid-cols-[260px_1fr]">
+      <div className="r-card grid grid-cols-1 gap-0.5 self-start p-1.5 w425:grid-cols-2 w1200:grid-cols-1" data-testid="report-list">
         {REPORTS.map((r) => (
           <button key={r.id} onClick={() => setKind(r.id)} data-testid={`report-type-${r.id}`}
             className={`relative block w-full rounded-md px-3 py-2.5 text-left transition-colors ${kind === r.id ? "bg-[#FEF2F2]" : "hover:bg-[#F8FAFB]"}`}>
@@ -67,7 +67,7 @@ const ReportBuilder = () => {
           </button>
         ))}
       </div>
-      <div className="r-card min-w-0 space-y-3 p-4">
+      <div className="r-card min-w-0 space-y-3 p-3 sm:p-4">
         <div className="flex flex-wrap items-end gap-3">
           {kind === "daily" ? (
             <div className="space-y-1"><Label className="text-xs">Date</Label><DateField value={p.date} onChange={(v) => v && setP({ ...p, date: v })} testId="report-date" /></div>
@@ -79,12 +79,12 @@ const ReportBuilder = () => {
           )}
           {kind !== "staff_performance" && (
             <div className="space-y-1"><Label className="text-xs">City</Label>
-              <Select value={p.city} onValueChange={(v) => setP({ ...p, city: v })}><SelectTrigger className="h-9 w-[150px]" data-testid="report-city"><SelectValue /></SelectTrigger>
+              <Select value={p.city} onValueChange={(v) => setP({ ...p, city: v })}><SelectTrigger className="h-9 w-full w425:w-[150px]" data-testid="report-city"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="all">All cities</SelectItem>{cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select>
             </div>
           )}
           {kind === "driver_history" && <div className="w-full max-w-md"><DriverSearch value={driver} onSelect={setDriver} testId="report-driver-search" /></div>}
-          <Button className="ml-auto" disabled={!ready || busy} onClick={exportXlsx} data-testid="report-export-button">
+          <Button className="w-full sm:ml-auto sm:w-auto" disabled={!ready || busy} onClick={exportXlsx} data-testid="report-export-button">
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}Export Excel
           </Button>
         </div>
@@ -93,7 +93,7 @@ const ReportBuilder = () => {
           <div>
             <div className="mb-2 text-sm font-semibold" data-testid="report-title">{data.title} <span className="font-normal text-muted-foreground">· {data.rows.length} {data.rows.length === 1 ? "row" : "rows"}</span></div>
             <div className="max-h-[60vh] overflow-auto rounded-md border">
-              <table className="data-table w-full" data-testid="report-table">
+              <table className="data-table w-full whitespace-nowrap" data-testid="report-table">
                 <thead><tr>{data.columns.map((c) => <th key={c} className={/₹/.test(c) ? "num" : ""}>{c}</th>)}</tr></thead>
                 <tbody>
                   {data.rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={/₹/.test(data.columns[j]) ? "num" : ""}><Cell v={v} col={data.columns[j]} /></td>)}</tr>)}
@@ -113,7 +113,7 @@ const Analytics = () => {
   return (
     <div className="space-y-4">
       <MonthKpis data={data} />
-      <section className="r-card min-w-0 p-4"><h2 className="mb-3 text-sm font-bold">Daily collection · last 14 days</h2>{data && <TrendChart series={data.series} height={220} />}</section>
+      <section className="r-card min-w-0 p-3 sm:p-4"><h2 className="mb-3 text-sm font-bold">Daily collection · last 14 days</h2>{data && <TrendChart series={data.series} height={220} />}</section>
     </div>
   );
 };

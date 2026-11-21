@@ -15,7 +15,7 @@ const STATUSES = [["all", "All statuses"], ["verified", "Verified"], ["pending",
 const Kpis = ({ k }) => {
   const pct = k.expected ? (k.verified / k.expected) * 100 : 0;
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8" data-testid="board-kpis">
+    <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 md:grid-cols-4 w1600:grid-cols-8" data-testid="board-kpis">
       <StatCard label="Eligible drivers" value={k.eligible} testId="kpi-eligible" />
       <StatCard label="Paid" value={k.paid} tone="st-verified" hint={k.partial ? `+${k.partial} partial` : "Verified"} testId="kpi-paid" />
       <StatCard label="Unpaid" value={k.unpaid} tone="st-unpaid" testId="kpi-unpaid" />
@@ -30,14 +30,14 @@ const Kpis = ({ k }) => {
 
 const Filters = ({ f, setF, staff, cities, searching }) => {
   const set = (key) => (v) => setF({ ...f, [key]: v?.target ? v.target.value : v });
-  const sel = (key, items, testId, w = "w-[150px]") => (
+  const sel = (key, items, testId, w = "w-full w425:w-[calc(50%-4px)] sm:w-[150px]") => (
     <Select value={f[key]} onValueChange={set(key)}>
       <SelectTrigger className={`h-9 ${w}`} data-testid={testId}><SelectValue /></SelectTrigger>
       <SelectContent>{items.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
     </Select>
   );
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex w-full flex-wrap items-center gap-2 w1200:w-auto">
       <div className="relative w-full sm:w-[280px]">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[#94A3B8]" />
         <Input value={f.q} onChange={set("q")} placeholder="Name, Driver ID, mobile, vehicle…" className="h-9 pl-8" data-testid="board-search" />
@@ -46,13 +46,19 @@ const Filters = ({ f, setF, staff, cities, searching }) => {
       {sel("city", [["all", "All cities"], ...cities.map((c) => [c, c])], "board-filter-city")}
       {sel("status", STATUSES, "board-filter-status")}
       {sel("staff_id", [["all", "All staff"], ...staff.map((s) => [s.id, s.name])], "board-filter-staff")}
-      {sel("active", [["all", "All drivers"], ["active", "Active only"], ["inactive", "Inactive only"]], "board-filter-active", "w-[130px]")}
+      {sel("active", [["all", "All drivers"], ["active", "Active only"], ["inactive", "Inactive only"]], "board-filter-active", "w-full w425:w-[calc(50%-4px)] sm:w-[130px]")}
     </div>
   );
 };
 
 const COLS = [["name", "Driver"], ["driver_code", "Driver ID"], ["mobile", "Mobile"], ["city", "City"], ["current_vehicle_id", "Vehicle ID"], ["vehicle_no", "Reg. No."],
   ["daily_rent", "Daily rent", 1], ["expected", "Expected", 1], ["submitted", "Submitted", 1], ["verified", "Verified", 1], ["outstanding", "Outstanding", 1], ["status", "Status"], ["staff", "Staff"]];
+
+// Imported vehicles look like "BLR10 - KA05AR1842": left = vehicle ID, right = reg no.
+const splitVeh = (no) => {
+  const m = (no || "").trim().match(/^(\S+)\s+-\s+(.+)$/);
+  return m ? [m[1], m[2].trim()] : ["", (no || "").trim()];
+};
 
 export default function AllDriversPage() {
   const nav = useNavigate();
@@ -103,12 +109,12 @@ export default function AllDriversPage() {
       <section className="r-card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
           <Filters f={f} setF={setF} staff={staff} cities={cities} searching={loading} />
-          <Button variant="outline" className="h-9" onClick={exportXlsx} disabled={exporting} data-testid="board-export">
+          <Button variant="outline" className="h-9 w-full sm:w-auto" onClick={exportXlsx} disabled={exporting} data-testid="board-export">
             {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}Export Excel
           </Button>
         </div>
         <div className="max-h-[62vh] overflow-auto">
-          <table className="data-table w-full" data-testid="board-table">
+          <table className="data-table w-full min-w-[1100px] whitespace-nowrap" data-testid="board-table">
             <thead><tr>{COLS.map(([k, l, n]) => <SortTh key={k} k={k} label={l} sort={sort} onSort={setSort} className={n ? "num" : ""} />)}<th /></tr></thead>
             <tbody>
               {!data && <SkeletonRows cols={COLS.length + 1} />}
@@ -121,8 +127,8 @@ export default function AllDriversPage() {
                   <td className="font-mono text-xs">{r.driver_code}</td>
                   <td className="font-mono text-xs text-[#64748B]">{r.mobile}</td>
                   <td>{r.city}</td>
-                  <td className="font-mono text-xs font-semibold">{r.current_vehicle_id || "—"}</td>
-                  <td className="font-mono text-xs text-[#64748B]">{r.vehicle_no || "—"}</td>
+                  <td className="font-mono text-xs font-semibold">{splitVeh(r.vehicle_no)[0] || "—"}</td>
+                  <td className="font-mono text-xs text-[#64748B]">{splitVeh(r.vehicle_no)[1] || "—"}</td>
                   <td className="num">{inr(r.daily_rent)}</td>
                   <td className="num">{inr(r.expected)}</td>
                   <td className="num">{r.submitted ? inr(r.submitted) : "—"}</td>

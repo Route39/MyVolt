@@ -72,7 +72,7 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
             </Select>
           </div>
           <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Details (optional)</Label><Input value={f.details} onChange={set("details")} placeholder="Make, model, colour…" data-testid="vehicle-form-details" /></div>
-          <div className="flex justify-end gap-2 sm:col-span-2">
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end sm:col-span-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" data-testid="vehicle-form-save">Save vehicle</Button>
           </div>
@@ -107,7 +107,7 @@ const AssignDriverDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
         </DialogHeader>
         <DriverSearch value={driver} onSelect={setDriver} testId="vehicle-assign-driver-search" />
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" data-testid="vehicle-assign-reason" />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={!driver} onClick={save} data-testid="vehicle-assign-save">Assign</Button>
         </div>
@@ -187,14 +187,14 @@ export default function VehiclesPage() {
         title="Vehicle Management"
         subtitle={`${rows.length} vehicles · Vehicle IDs are permanent and never reused`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button variant="outline" onClick={exportXlsx} disabled={exporting} data-testid="export-vehicles-button">
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export Excel
             </Button>
             <Button variant="outline" onClick={() => setImportOpen(true)} data-testid="import-vehicles-button">
               <FileUp className="mr-1.5 h-4 w-4" />
-              Import Excel / PDF / Image
+              <span className="hidden w425:inline">Import Excel / PDF / Image</span><span className="w425:hidden">Import</span>
             </Button>
             <Button onClick={() => setEdit(null)} data-testid="add-vehicle-button">
               <Plus className="mr-1.5 h-4 w-4" />
@@ -205,14 +205,14 @@ export default function VehiclesPage() {
       />
 
       <section className="space-y-2.5" data-testid="vehicles-summary-bar">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Showing vehicles" value={filtered.length} hint={city === "all" ? "All cities" : city} testId="vehicles-kpi-total" />
           <StatCard label="Rented / assigned" value={assignedCount} tone="st-verified" testId="vehicles-kpi-assigned" />
           <StatCard label="Available / unassigned" value={availableCount} tone="st-partial" testId="vehicles-kpi-available" />
           <StatCard label="Active daily rent" value={inr(totalVehicleRent)} tone="st-verified" hint="Total vehicle rent rate" testId="vehicles-kpi-rent" />
         </div>
         {cityStats.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="vehicles-city-pills">
+          <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap pb-1 [&>*]:shrink-0 md:flex-wrap md:overflow-visible" data-testid="vehicles-city-pills">
             <span className="inline-flex items-center gap-1 pr-1 text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
               <MapPin className="h-3 w-3" /> Cities:
             </span>
@@ -245,9 +245,9 @@ export default function VehiclesPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Vehicle, VIN, Driver, ID, city…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 max-w-sm" data-testid="vehicles-search" />
+          <Input placeholder="Search Vehicle, VIN, Driver, ID, city…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="vehicles-search" />
           <Select value={city} onValueChange={setCity}>
-            <SelectTrigger className="h-9 w-[160px]" data-testid="vehicles-filter-city">
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="vehicles-filter-city">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -258,7 +258,7 @@ export default function VehiclesPage() {
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-9 w-[150px]" data-testid="vehicles-filter-status">
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="vehicles-filter-status">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -268,7 +268,7 @@ export default function VehiclesPage() {
             </SelectContent>
           </Select>
           <Select value={assignment} onValueChange={setAssignment}>
-            <SelectTrigger className="h-9 w-[150px]" data-testid="vehicles-filter-assignment">
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="vehicles-filter-assignment">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -279,7 +279,7 @@ export default function VehiclesPage() {
           </Select>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table w-full" data-testid="vehicles-table">
+          <table className="data-table w-full min-w-[900px] whitespace-nowrap" data-testid="vehicles-table">
             <thead>
               <tr>
                 <th>Vehicle</th>
@@ -298,7 +298,7 @@ export default function VehiclesPage() {
                   <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`}>
                     <td className="font-mono text-xs">
                       <span className="font-semibold text-[#17212B]">{v.reg_no}</span>{" "}
-                      <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] text-[#64748B]">{v.vehicle_id}</span>
+                      {/* <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] text-[#64748B]">{v.vehicle_id}</span> */}
                     </td>
                     <td>
                       <span className={`${STATUS_CLS[displayStatus] || "st-none"} st-pill rounded-full px-2 py-0.5 text-[11px] font-medium`}>
@@ -317,7 +317,7 @@ export default function VehiclesPage() {
                     <td>{v.city}</td>
                     <td className="font-mono text-xs">{v.vin || "—"}</td>
                     <td className="font-mono text-xs">{v.rental_ends || "(blank)"}</td>
-                    <td className="text-right">
+                    <td className="whitespace-nowrap text-right">
                       <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={() => setAssign(v)} data-testid={`vehicle-assign-${v.vehicle_id}`}>
                         <ArrowLeftRight className="h-4 w-4" />
                       </Button>

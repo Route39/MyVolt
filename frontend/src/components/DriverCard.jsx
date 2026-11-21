@@ -22,7 +22,7 @@ export const DriverCard = ({ driver, onChangeVehicle }) => (
         {driver.status}
       </span>
     </div>
-    <div className="mt-3 flex items-center gap-3 rounded-md border border-[#E5E7EB] bg-[#F8FAFB] px-3 py-2">
+    <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-[#E5E7EB] bg-[#F8FAFB] px-3 py-2">
       <div className="min-w-0 flex-1">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Current vehicle</div>
         <div className="font-mono text-sm">
@@ -43,7 +43,7 @@ export const DriverCard = ({ driver, onChangeVehicle }) => (
         </Button>
       )}
     </div>
-    <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+    <div className="mt-4 grid grid-cols-1 gap-x-4 w375:grid-cols-2 gap-y-3">
       <Field label="Mobile" value={driver.mobile} mono testId="driver-card-mobile" />
       <Field label="City" value={driver.city} testId="driver-card-city" />
       <Field label="Daily rent" value={inr(driver.daily_rent)} testId="driver-card-rent" />

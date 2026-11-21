@@ -51,7 +51,7 @@ export default function HistoryPage() {
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Payment Ledger" subtitle="Every rent payment with its recorded driver, vehicle, UTR and verification trail"
-        actions={<Button variant="outline" className="h-9" onClick={exportXlsx} disabled={exporting} data-testid="ledger-export">{exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}Export Excel</Button>} />
+        actions={<Button variant="outline" className="h-9 w-full sm:w-auto" onClick={exportXlsx} disabled={exporting} data-testid="ledger-export">{exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}Export Excel</Button>} />
       <div className="r-card space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-full sm:w-[300px]">
