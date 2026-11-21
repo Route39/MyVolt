@@ -1547,8 +1547,6 @@ async def validate_payment(method, utr, file_id, exclude_id=None):
     if method != "Cash":
         if len(utr) < 6:
             raise HTTPException(400, "Enter a valid UTR / transaction reference (min 6 characters)")
-        if not file_id:
-            raise HTTPException(400, "Payment screenshot is required for UPI and bank transfers")
         dup = await db.transactions.find_one({"utr": utr, "status": {"$ne": "rejected"}, "id": {"$ne": exclude_id}}, P)
         if dup:
             raise HTTPException(409, f"This UTR is already used in {dup['id']} ({dup['driver_name']}, {dup['payment_date']})")

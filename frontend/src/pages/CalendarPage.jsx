@@ -99,10 +99,10 @@ export default function CalendarPage() {
           <div className="order-last space-y-4 w1200:order-none w1200:col-start-1 w1200:row-start-2">
             <RentSummary title="Monthly financial summary" summary={cal.month_summary} prefix="month" />
             <RentSummary
-              title="Overall pending amount"
+              title="Since rent start"
               subtitle={
                 driver?.joining_date
-                  ? `From ${cal.rent_calc_start || "next day"} to today (joining date ${driver.joining_date} is rent-free)`
+                  ? `Rent counted from ${cal.rent_calc_start || "next day"} to today (joining date ${driver.joining_date} is rent-free)`
                   : "From day after joining date to today"
               }
               summary={cal.overall_summary}

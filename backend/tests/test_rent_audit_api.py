@@ -126,7 +126,8 @@ class TestTransactions:
                 "amount": 500, "utr": "12", "method": "UPI", "vehicle_id": "CHN-001"}
         assert requests.post(f"{API}/transactions", headers=h("u-staff-1"), json=body).status_code == 400
         body["utr"] = utr()
-        assert requests.post(f"{API}/transactions", headers=h("u-staff-1"), json=body).status_code == 400
+        # Screenshot is optional; valid UTR succeeds without screenshot
+        assert requests.post(f"{API}/transactions", headers=h("u-staff-1"), json=body).status_code == 200
 
     def test_accounts_cannot_submit(self, test_driver):
         body = {"driver_id": test_driver["id"], "payment_date": TODAY.isoformat(), "amount": 500, "utr": "",

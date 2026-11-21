@@ -45,8 +45,8 @@ const Screenshot = ({ file, existingId, uploading, scanning, onPick, onClear }) 
           className="flex w-full flex-col items-center gap-1 rounded-md border border-dashed px-3 py-5 text-sm text-muted-foreground transition-colors hover:border-[var(--r39-green)] hover:bg-[var(--r39-green-bg)]"
         >
           <ImagePlus className="h-5 w-5" />
-          <span>Click or drop screenshot</span>
-          <span className="text-[11px]">JPG, JPEG, PNG, WEBP</span>
+          <span>Click or drop payment screenshot (optional)</span>
+          <span className="text-[11px]">Upload if available · JPG, PNG, WEBP</span>
         </button>
       )}
     </div>
@@ -188,7 +188,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Payment screenshot {cash && <span className="text-muted-foreground">(optional for cash)</span>}</Label>
+            <Label>Payment screenshot <span className="font-normal text-muted-foreground">(optional)</span></Label>
             <Screenshot file={file} existingId={editing ? txn?.file_id : null} uploading={uploading} scanning={scanning} onPick={onPick} onClear={() => setFile(null)} />
           </div>
           <div className="space-y-1.5">
