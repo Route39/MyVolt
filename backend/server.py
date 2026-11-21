@@ -642,7 +642,7 @@ async def assign_vehicle(drv, vehicle_id, user, reason):
 
 
 @api.post("/drivers/{did}/assign-vehicle")
-async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "admin"))):
+async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "accounts", "admin"))):
     drv = await get_driver_or_404(did)
     await assign_vehicle(drv, (body.vehicle_id or "").strip().upper() or None, user, body.reason)
     return await get_driver(did, user)
@@ -1250,7 +1250,7 @@ ALLOWED = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp"
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user=Depends(require("staff", "admin"))):
+async def upload(file: UploadFile = File(...), user=Depends(require("staff", "accounts", "admin"))):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ALLOWED:
         raise HTTPException(400, "Only JPG, JPEG, PNG or WEBP images are allowed")
@@ -1279,6 +1279,86 @@ async def get_file(fid: str, user=Depends(current_user)):
     return Response(content=data, media_type=rec["content_type"],
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename") or "screenshot"}"'})
 
+                    # ---------- payment screenshot scan (offline OCR: checks it is a payment receipt + reads the UTR) ----------
+import tempfile
+import threading as _threading
+
+_PAY_OCR_ENGINE = None
+_PAY_OCR_LOCK = _threading.Lock()
+
+# label groups in priority order: the bank-side reference (UTR / UPI Ref) is preferred over app-side IDs
+_PAY_LABELS = [
+    r"UTR(?:\s*(?:No|Number))?",
+    r"UPI\s*(?:Ref(?:erence)?(?:\s*(?:No|ID|Number))?|transaction\s*ID)",
+    r"Ref(?:erence)?\s*(?:No|ID|Number)",
+    r"(?:Transaction|Txn)\s*(?:ID|No|Number)",
+]
+_PAY_VAL = r"([A-Za-z0-9][A-Za-z0-9\-]{7,39})"
+# words that normally appear on a payment receipt; a real receipt matches several of them
+_PAY_WORDS = [
+    r"paid", r"payment", r"success(?:ful(?:ly)?)?", r"completed", r"transaction", r"\btxn\b", r"\bUPI\b", r"\bUTR\b",
+    r"\bref(?:erence)?\b", r"debited", r"credited", r"transferred", r"\bsent\b", r"beneficiary", r"\bbank\b",
+    r"google\s*pay|gpay|phonepe|paytm|bhim|amazon\s*pay|\bcred\b", r"\bfrom\b", r"\bto\b",
+]
+
+
+def _read_payment_text(lines):
+    """Text logic: do the OCR lines look like a payment receipt, and what is the UTR / transaction ref?"""
+    text = "\n".join(lines)
+    txn = None
+    for g in _PAY_LABELS:                                     # 1) value written after a known label
+        for m in re.finditer(g + r"\.?\s*[:#\-]?\s*\n?\s*" + _PAY_VAL, text, re.I):
+            if re.search(r"\d{6,}", m.group(1)):
+                txn = m.group(1)
+                break
+        if txn:
+            break
+    if not txn:                                               # 2) standalone 12-digit UPI ref, 3) PhonePe-style id
+        m = re.search(r"(?<!\d)(\d{12})(?!\d)", text) or re.search(r"\b(T\d{15,25})\b", text)
+        txn = m.group(1) if m else None
+    hits = sum(1 for w in _PAY_WORDS if re.search(w, text, re.I))
+    has_amount = bool(re.search(r"(?:₹|Rs\.?|INR|\?)\s*\d", text, re.I)) or any(
+        re.fullmatch(r"\s*[^\w\s]?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*", ln) for ln in lines)
+    is_payment = bool((txn and hits >= 2) or (has_amount and hits >= 4))
+    return {"is_payment": is_payment, "utr": txn.upper() if (is_payment and txn) else None}
+
+
+def _scan_payment_screenshot_sync(data, ext):
+    global _PAY_OCR_ENGINE
+    fd, tmp = tempfile.mkstemp(suffix="." + ext)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        with _PAY_OCR_LOCK:                                   # one scan at a time; the model loads once, on first use
+            if _PAY_OCR_ENGINE is None:
+                from rapidocr_onnxruntime import RapidOCR
+                _PAY_OCR_ENGINE = RapidOCR()
+            res, _ = _PAY_OCR_ENGINE(tmp)
+    finally:
+        with suppress(OSError):
+            os.remove(tmp)
+    lines = [r[1] for r in sorted(res or [], key=lambda r: r[0][0][1])]      # top-to-bottom
+    return _read_payment_text(lines)
+
+
+class ScanIn(BaseModel):
+    file_id: str
+
+
+@api.post("/upload/scan")
+async def scan_uploaded_screenshot(body: ScanIn, user=Depends(require("staff", "admin"))):
+    rec = await db.files.find_one({"id": body.file_id, "is_deleted": False}, P)
+    if not rec:
+        raise HTTPException(400, "Screenshot not found, please upload again")
+    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(rec.get("content_type"), "jpg")
+    try:
+        data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+        res = await asyncio.wait_for(asyncio.to_thread(_scan_payment_screenshot_sync, data, ext), timeout=90)
+    except Exception as e:                                    # scanner missing / crashed: never block the payment form
+        logger.warning("Payment screenshot scan failed: %s", e)
+        return {"scanned": False, "is_payment": None, "utr": None}
+    return {"scanned": True, **res}
+
 
 # ---------- transactions ----------
 async def get_txn_or_404(tid):
@@ -1304,7 +1384,7 @@ async def validate_payment(method, utr, file_id, exclude_id=None):
 
 
 @api.post("/transactions")
-async def create_txn(body: TxnIn, user=Depends(require("staff", "admin"))):
+async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "admin"))):
     drv = await get_driver_or_404(body.driver_id)
     settings = await get_settings()
     try:
@@ -1402,8 +1482,6 @@ async def approve_txn(tid: str, user=Depends(require("accounts", "admin"))):
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be approved (current: {t['status']})")
-    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
-        raise HTTPException(403, "You cannot approve a payment you entered or changed yourself")
     upd = {"status": "approved", "verified_by": user["id"], "verified_by_name": user["name"], "verified_at": now_iso()}
     if not await db.transactions.find_one_and_update({"id": tid, "status": "pending"}, {"$set": upd}):
         raise HTTPException(409, "This payment was already processed by someone else")
@@ -1416,8 +1494,6 @@ async def reject_txn(tid: str, body: RejectIn, user=Depends(require("accounts", 
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be rejected (current: {t['status']})")
-    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
-        raise HTTPException(403, "You cannot reject a payment you entered or changed yourself")
     reason = body.remarks.strip()
     upd = {"status": "rejected", "verified_by": user["id"], "verified_by_name": user["name"],
            "verified_at": now_iso(), "rejection_reason": reason}
@@ -1462,7 +1538,7 @@ async def apply_edit(t, body: TxnEdit, user, label):
 
 
 @api.put("/transactions/{tid}/resubmit")
-async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "admin"))):
+async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "accounts", "admin"))):
     t = await get_txn_or_404(tid)
     if t["status"] != "rejected":
         raise HTTPException(400, "Only rejected payments can be corrected and resubmitted")
