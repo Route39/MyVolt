@@ -173,8 +173,14 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
           </div>
           <div className="space-y-1.5">
             <Label>Vehicle ID used for this payment</Label>
-            <VehicleSelect vehicles={vehicles.filter((v) => v.status !== "Inactive" || v.vehicle_id === form.vehicle_id)} value={form.vehicle_id}
-              onChange={(v) => setForm((f) => ({ ...f, vehicle_id: v }))} testId="payment-vehicle-select" placeholder={editing && !txn?.vehicle_id ? "Vehicle ID not recorded — select" : "Select vehicle"} />
+            <VehicleSelect
+              vehicles={vehicles.filter((v) => v.status !== "Inactive" || v.vehicle_id === form.vehicle_id)}
+              driver={driver}
+              value={form.vehicle_id}
+              onChange={(v) => setForm((f) => ({ ...f, vehicle_id: v }))}
+              testId="payment-vehicle-select"
+              placeholder={editing && !txn?.vehicle_id ? "Vehicle ID not recorded — select" : "Select vehicle"}
+            />
           </div>
           <div className="space-y-1.5">
             <Label>Payment method</Label>

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, errMsg } from "@/lib/api";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, getCityPrefix, getCityDisplayName } from "@/lib/format";
 
 export const NOT_RECORDED = "Vehicle ID not recorded";
 
@@ -18,22 +19,216 @@ export const useVehicles = (open = true) => {
   return vehicles;
 };
 
-export const VehicleSelect = ({ vehicles, value, onChange, testId, placeholder = "Select vehicle", allowNone }) => (
-  <Select value={value || (allowNone ? "none" : "")} onValueChange={(v) => onChange(v === "none" ? null : v)}>
-    <SelectTrigger className="h-10" data-testid={testId}><SelectValue placeholder={placeholder} /></SelectTrigger>
-    <SelectContent className="max-w-[calc(100vw-24px)]">
-      {allowNone && <SelectItem value="none">No vehicle</SelectItem>}
-      {vehicles.map((v) => (
-        <SelectItem key={v.vehicle_id} value={v.vehicle_id} data-testid={`${testId}-option-${v.vehicle_id}`}>
-          <span className="font-mono text-xs font-semibold">{v.vehicle_id}</span>
-          <span className="font-mono text-xs text-muted-foreground"> · {v.reg_no}</span>
-          {v.status !== "Active" && <span className="text-xs text-muted-foreground"> · {v.status}</span>}
-          {v.current_driver && <span className="text-xs text-muted-foreground"> · {v.current_driver.name}</span>}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-);
+export const VehicleSelect = ({
+  vehicles = [],
+  value,
+  onChange,
+  testId,
+  placeholder = "Select vehicle",
+  allowNone = false,
+  driver = null,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [showAllInCity, setShowAllInCity] = useState(false);
+
+  // Determine driver city and prefix
+  const driverCityPrefix = getCityPrefix(driver?.city) || getCityPrefix(driver?.driver_code);
+  const cityDisplayName = getCityDisplayName(driver?.city || driver?.driver_code);
+
+  // 1. Strict city filtering: only show vehicles matching driver's city prefix,
+  // or currently assigned / selected vehicle so recorded data is never broken.
+  const cityVehicles = vehicles.filter((v) => {
+    if (value && v.vehicle_id === value) return true;
+    if (driver?.current_vehicle_id && v.vehicle_id === driver.current_vehicle_id) return true;
+    if (!driverCityPrefix) return true;
+    const vPrefix = getCityPrefix(v.city) || getCityPrefix(v.vehicle_id);
+    return vPrefix === driverCityPrefix;
+  });
+
+  // Current selected vehicle object
+  const selected = vehicles.find((v) => v.vehicle_id === value) || (value ? { vehicle_id: value, reg_no: "" } : null);
+
+  // When searching, match vehicle_id, reg_no, or vin
+  const cleanQ = query.trim().toLowerCase().replace(/[\s-]/g, "");
+  const filtered = cityVehicles.filter((v) => {
+    if (!cleanQ) return showAllInCity;
+    const idClean = (v.vehicle_id || "").toLowerCase().replace(/[\s-]/g, "");
+    const regClean = (v.reg_no || "").toLowerCase().replace(/[\s-]/g, "");
+    const vinClean = (v.vin || "").toLowerCase().replace(/[\s-]/g, "");
+    return idClean.includes(cleanQ) || regClean.includes(cleanQ) || vinClean.includes(cleanQ);
+  });
+
+  const handleSelect = (vid) => {
+    onChange(vid);
+    setOpen(false);
+    setQuery("");
+    setShowAllInCity(false);
+  };
+
+  const handleClear = (e) => {
+    e.stopPropagation();
+    onChange(null);
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) {
+          setQuery("");
+          setShowAllInCity(false);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={testId}
+          className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm ring-offset-background transition-colors hover:border-[var(--r39-green)] focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 text-left"
+        >
+          {selected ? (
+            <span className="truncate">
+              <span className="font-mono font-semibold text-foreground">{selected.vehicle_id}</span>
+              {selected.reg_no && <span className="font-mono text-muted-foreground"> · {selected.reg_no}</span>}
+              {selected.city && (
+                <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {selected.city}
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="truncate text-muted-foreground">{placeholder}</span>
+          )}
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            {value && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={handleClear}
+                className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                title="Clear vehicle"
+              >
+                <X className="h-3.5 w-3.5" />
+              </span>
+            )}
+            <ChevronsUpDown className="h-4 w-4 text-muted-foreground opacity-50" />
+          </div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[340px] p-0" align="start">
+        <div className="flex items-center border-b px-3">
+          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+          <input
+            data-testid={`${testId}-input`}
+            className="flex h-10 w-full rounded-md bg-transparent py-2 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder={`Type vehicle ID or reg. no. ${cityDisplayName ? `(${cityDisplayName})` : ""}…`}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (showAllInCity) setShowAllInCity(false);
+            }}
+            autoFocus
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="text-muted-foreground hover:text-foreground p-1"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="max-h-[260px] overflow-y-auto p-1 text-xs">
+          {allowNone && (
+            <button
+              type="button"
+              data-testid={`${testId}-option-none`}
+              onClick={() => handleSelect(null)}
+              className="flex w-full items-center justify-between rounded px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent"
+            >
+              <span>No vehicle</span>
+              {!value && <Check className="h-3.5 w-3.5 text-[var(--r39-green)]" />}
+            </button>
+          )}
+
+          {!query.trim() && !showAllInCity ? (
+            <div className="p-3 text-center text-xs text-muted-foreground space-y-2">
+              {driver?.current_vehicle_id ? (
+                <div>
+                  <div className="text-[11px] mb-1.5 text-left font-medium text-foreground">Current assigned vehicle:</div>
+                  <button
+                    type="button"
+                    data-testid={`${testId}-option-${driver.current_vehicle_id}`}
+                    onClick={() => handleSelect(driver.current_vehicle_id)}
+                    className="flex w-full items-center justify-between rounded border bg-muted/30 px-2.5 py-2 text-left font-mono text-xs hover:border-[var(--r39-green)] hover:bg-[var(--r39-green-bg)]"
+                  >
+                    <div className="truncate">
+                      <span className="font-semibold text-foreground">{driver.current_vehicle_id}</span>
+                      {driver.vehicle_no && <span className="text-muted-foreground"> · {driver.vehicle_no}</span>}
+                    </div>
+                    {value === driver.current_vehicle_id && <Check className="h-3.5 w-3.5 text-[var(--r39-green)]" />}
+                  </button>
+                </div>
+              ) : null}
+              <p className="pt-1 text-[11px]">
+                Type vehicle ID or reg. no. to search {cityDisplayName ? `in ${cityDisplayName}` : ""} (e.g. {driverCityPrefix ? `${driverCityPrefix}-001` : "001"} or reg no)
+              </p>
+              {cityVehicles.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllInCity(true)}
+                  className="inline-block text-[11px] text-[var(--r39-green-text)] underline hover:opacity-80"
+                >
+                  Show all {cityVehicles.length} {cityDisplayName || "city"} vehicles
+                </button>
+              )}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="p-4 text-center text-xs text-muted-foreground">
+              No matching vehicles found {cityDisplayName ? `in ${cityDisplayName}` : ""} {query ? `for "${query}"` : ""}.
+            </div>
+          ) : (
+            filtered.map((v) => (
+              <button
+                key={v.vehicle_id}
+                type="button"
+                data-testid={`${testId}-option-${v.vehicle_id}`}
+                onClick={() => handleSelect(v.vehicle_id)}
+                className={`flex w-full items-center justify-between rounded-sm px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent ${
+                  value === v.vehicle_id ? "bg-accent/60 font-medium" : ""
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="font-mono font-semibold text-foreground">{v.vehicle_id}</span>
+                  <span className="font-mono text-muted-foreground">· {v.reg_no}</span>
+                  {v.city && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {v.city}
+                    </span>
+                  )}
+                  {v.status !== "Active" && (
+                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                      {v.status}
+                    </span>
+                  )}
+                  {v.current_driver && (
+                    <span className="truncate text-xs text-muted-foreground">
+                      · {v.current_driver.name}
+                    </span>
+                  )}
+                </div>
+                {value === v.vehicle_id && <Check className="h-3.5 w-3.5 text-[var(--r39-green)]" />}
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 export const VehicleAssignDialog = ({ open, onOpenChange, driver, onSaved }) => {
   const all = useVehicles(open);
@@ -66,7 +261,7 @@ export const VehicleAssignDialog = ({ open, onOpenChange, driver, onSaved }) => 
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1"><Label className="text-xs">New vehicle (free vehicles only)</Label>
-            <VehicleSelect vehicles={options} value={vid} onChange={setVid} testId="assign-vehicle-select" allowNone />
+            <VehicleSelect vehicles={options} driver={driver} value={vid} onChange={setVid} testId="assign-vehicle-select" allowNone />
           </div>
           <div className="space-y-1"><Label className="text-xs">Reason (optional)</Label>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Old vehicle sent for service" data-testid="assign-vehicle-reason" />

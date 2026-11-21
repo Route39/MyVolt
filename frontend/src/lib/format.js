@@ -35,3 +35,26 @@ export const ROLE_LABEL = { staff: "Staff", accounts: "Accounts", admin: "Admin"
 
 export const FLEET_CITIES = ["Chennai", "Bangalore", "Coimbatore", "Tiruppur"];
 export const normalizeCity = (c) => (c === "Bengaluru" ? "Bangalore" : c || "Bangalore");
+
+export const getCityPrefix = (val) => {
+  if (!val) return "";
+  const s = String(val).trim().toUpperCase();
+  if (s === "BANGALORE" || s === "BENGALURU" || s.startsWith("BLR")) return "BLR";
+  if (s === "CHENNAI" || s === "MADRAS" || s.startsWith("CHN")) return "CHN";
+  if (s === "COIMBATORE" || s.startsWith("CBE")) return "CBE";
+  if (s === "TIRUPPUR" || s === "TIRUPUR" || s.startsWith("TPR") || s.startsWith("TUP")) return "TPR";
+  if (s === "HYDERABAD" || s.startsWith("HYD")) return "HYD";
+  const m = s.match(/^([A-Z]{2,4})-/);
+  if (m) return m[1];
+  return s.slice(0, 3);
+};
+
+export const getCityDisplayName = (val) => {
+  const p = getCityPrefix(val);
+  if (p === "BLR") return "Bangalore";
+  if (p === "CHN") return "Chennai";
+  if (p === "CBE") return "Coimbatore";
+  if (p === "TPR") return "Tiruppur";
+  if (p === "HYD") return "Hyderabad";
+  return val ? normalizeCity(val) : "";
+};
