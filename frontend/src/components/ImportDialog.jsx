@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api, downloadBlob, errMsg } from "@/lib/api";
+import { FLEET_CITIES, normalizeCity } from "@/lib/format";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const PREVIEW_PAGE_SIZE = 50;
 const CHUNK_SIZE = 100;
 
-const blankRow = (city = "Bengaluru", rent = 700) => ({
+const blankRow = (city = "Bangalore", rent = 700) => ({
   name: "",
   mobile: "",
   city,
@@ -22,7 +23,6 @@ const blankRow = (city = "Bengaluru", rent = 700) => ({
   handover_date: "",
   rent_start_date: "",
   driver_code: "",
-  package: "",
   reg_no: "",
   vehicle_type: "",
   vin: "",
@@ -37,7 +37,7 @@ const blankRow = (city = "Bengaluru", rent = 700) => ({
 export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_vehicles", onImported }) => {
   const [mode, setMode] = useState(defaultMode);
   const [updateExisting, setUpdateExisting] = useState(true);
-  const [defaultCity, setDefaultCity] = useState("Bengaluru");
+  const [defaultCity, setDefaultCity] = useState("Bangalore");
   const [defaultRent, setDefaultRent] = useState("700");
   const [filename, setFilename] = useState("");
   const [rows, setRows] = useState([]);
@@ -240,7 +240,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           </DialogTitle>
           <DialogDescription className="hidden sm:block">
             {isDriversOnly
-              ? "Upload your Drivers sheet (Excel, PDF, Image, or CSV). Columns: Driver, ID, Phone, Vehicle, Package, City, Joining Date."
+              ? "Upload your Drivers sheet (Excel, PDF, Image, or CSV). Columns: Driver, ID, Phone, Vehicle, City, Joining Date."
               : isVehiclesOnly
                 ? "Upload your Vehicles sheet (Excel, PDF, Image, or CSV). Columns: Vehicle, Status, Driver, City, VIN, Rental Ends."
                 : "Upload any Excel (.xlsx), PDF (text or scanned), CSV, or screenshot image (.png, .jpg, .webp) from your old platform. Review or edit extracted records before saving into MyVolt."}
@@ -309,13 +309,16 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[#64748B]">Defaults:</span>
-            <Input
-              value={defaultCity}
-              onChange={(e) => setDefaultCity(e.target.value)}
-              placeholder="City"
-              className="h-8 w-[130px] text-xs"
-              data-testid="import-default-city"
-            />
+            <Select value={normalizeCity(defaultCity)} onValueChange={setDefaultCity}>
+              <SelectTrigger className="h-8 w-[140px] bg-white text-xs" data-testid="import-default-city">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FLEET_CITIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {!isVehiclesOnly && (
               <Input
                 type="number"
@@ -388,7 +391,6 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                       <th>ID</th>
                       <th>Phone</th>
                       <th>Vehicle</th>
-                      <th>Package</th>
                       <th>City</th>
                       <th>Joining Date</th>
                     </>
@@ -461,22 +463,22 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                             />
                           </td>
                           <td>
-                            <Input
-                              value={r.package || ""}
-                              onChange={(e) => updateCell(i, "package", e.target.value)}
-                              placeholder="Silver Package"
-                              className="h-8 min-w-[120px] text-xs"
-                              data-testid={`import-row-package-${i}`}
-                            />
-                          </td>
-                          <td>
-                            <Input
-                              value={r.city || ""}
-                              onChange={(e) => updateCell(i, "city", e.target.value)}
-                              placeholder="Tiruppur"
-                              className="h-8 min-w-[105px] text-xs"
-                              data-testid={`import-row-city-${i}`}
-                            />
+                            <Select
+                              value={normalizeCity(r.city)}
+                              onValueChange={(v) => updateCell(i, "city", v)}
+                            >
+                              <SelectTrigger className="h-8 min-w-[125px] bg-white text-xs" data-testid={`import-row-city-${i}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FLEET_CITIES.map((c) => (
+                                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                                ))}
+                                {r.city && !FLEET_CITIES.includes(r.city) && r.city !== "Bengaluru" && (
+                                  <SelectItem value={r.city}>{r.city}</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td>
                             <Input
@@ -524,13 +526,22 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                             />
                           </td>
                           <td>
-                            <Input
-                              value={r.city || ""}
-                              onChange={(e) => updateCell(i, "city", e.target.value)}
-                              placeholder="Bengaluru"
-                              className="h-8 min-w-[110px] text-xs"
-                              data-testid={`import-row-city-${i}`}
-                            />
+                            <Select
+                              value={normalizeCity(r.city)}
+                              onValueChange={(v) => updateCell(i, "city", v)}
+                            >
+                              <SelectTrigger className="h-8 min-w-[125px] bg-white text-xs" data-testid={`import-row-city-${i}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FLEET_CITIES.map((c) => (
+                                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                                ))}
+                                {r.city && !FLEET_CITIES.includes(r.city) && r.city !== "Bengaluru" && (
+                                  <SelectItem value={r.city}>{r.city}</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td>
                             <Input
@@ -630,7 +641,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               <FileUp className="h-8 w-8 text-[#94A3B8]" />
               <p className="mt-2 text-sm font-medium text-[#17212B]">Upload your old platform Excel, PDF, CSV, or screenshot image</p>
               <p className="mt-1 max-w-md text-xs text-[#64748B]">
-                Accepts your old platform PDFs (text or scanned), Excel spreadsheets (.xlsx), CSV files, and table screenshots (.png, .jpg, .webp) — including Driver IDs, Packages, Vehicle VINs, Rental Ends, Cities, and Rent Rates.
+                Accepts your old platform PDFs (text or scanned), Excel spreadsheets (.xlsx), CSV files, and table screenshots (.png, .jpg, .webp) — including Driver IDs, Vehicle VINs, Rental Ends, Cities, and Rent Rates.
               </p>
               {rawPreview && (
                 <pre className="mt-4 max-h-36 w-full max-w-2xl overflow-auto rounded border bg-[#F8FAFB] p-2.5 text-left font-mono text-[11px] text-[#334155]">

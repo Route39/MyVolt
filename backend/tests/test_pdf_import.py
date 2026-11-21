@@ -221,7 +221,7 @@ class TestPdfExcelCsvImport:
         wb_drv = load_workbook(io.BytesIO(drv_exp.content))
         drv_rows = list(wb_drv.active.iter_rows(values_only=True))
         assert len(drv_rows) >= 5
-        assert all(r[3] == "Bengaluru" for r in drv_rows[4:] if r[0])
+        assert all(r[4] in ("Bengaluru", "Bangalore") for r in drv_rows[4:] if r[0])
 
         veh_exp = requests.get(f"{API}/vehicles", headers=hdrs, params={"format": "xlsx", "city": "Chennai"})
         assert veh_exp.status_code == 200, veh_exp.text
@@ -230,7 +230,7 @@ class TestPdfExcelCsvImport:
         wb_veh = load_workbook(io.BytesIO(veh_exp.content))
         veh_rows = list(wb_veh.active.iter_rows(values_only=True))
         assert len(veh_rows) >= 5
-        assert all(r[6] == "Chennai" for r in veh_rows[4:] if r[0])
+        assert all(r[3] == "Chennai" for r in veh_rows[4:] if r[0])
 
     def test_roundtrip_excel_with_extra_columns_and_city_filter(self):
         hdrs = admin_headers()
@@ -317,7 +317,8 @@ class TestPdfExcelCsvImport:
         assert row["driver_code"] == "R39D-TUP001"
         assert row["mobile"] == "7904800475"
         assert row["reg_no"] == "TUP001 - hjjhjjhj"
-        assert row["package"] == "Silver Package"
+        assert "package" not in row
+        assert "Package" not in row["details"]
         assert row["city"] == "Tiruppur"
         assert row["joining_date"] == "2026-10-03"
 
@@ -342,7 +343,7 @@ class TestPdfExcelCsvImport:
         assert d["name"] == "varshini"
         assert d["mobile"] == "7904800475"
         assert d["vehicle_no"] == "TUP001 - hjjhjjhj"
-        assert d["package"] == "Silver Package"
+        assert "package" not in d
         assert d["city"] == "Tiruppur"
         assert d["joining_date"] == "2026-10-03"
 
@@ -437,7 +438,8 @@ class TestPdfExcelCsvImport:
         assert row["driver_code"] == "R39D-TUP001"
         assert row["mobile"] == "7904800475"
         assert row["reg_no"].startswith("TUP001 - ")
-        assert row["package"] == "Silver Package"
+        assert "package" not in row
+        assert "Package" not in row["details"]
         assert row["city"] == "Tiruppur"
         assert row["joining_date"] == "2026-10-03"
         assert row["has_joining_date"] is True
@@ -518,7 +520,6 @@ class TestPdfExcelCsvImport:
                 "driver_code": "R39D-TUP001",
                 "mobile": "7904800475",
                 "reg_no": "TUP001 - hjjhjjhj",
-                "package": "Silver Package",
                 "city": "Tiruppur",
                 "joining_date": "2026-10-03",
                 "daily_rent": 800,
@@ -561,15 +562,15 @@ class TestPdfExcelCsvImport:
         cres = cr.json()
         assert cres["errors"] == []
 
-        # 1. Drivers endpoint + filter by city & package
-        drvs = requests.get(f"{API}/drivers", headers=hdrs, params={"city": "Tiruppur", "q": "Silver"}).json()
+        # 1. Drivers endpoint + filter by city & name
+        drvs = requests.get(f"{API}/drivers", headers=hdrs, params={"city": "Tiruppur", "q": "varshini"}).json()
         assert len(drvs) == 1
         varshini = drvs[0]
         CREATED["drivers"].append(varshini["id"])
         if varshini.get("current_vehicle_id"):
             CREATED["vehicles"].append(varshini["current_vehicle_id"])
         assert varshini["driver_code"] == "R39D-TUP001"
-        assert varshini["package"] == "Silver Package"
+        assert "package" not in varshini
         assert varshini["vehicle_no"] == "TUP001 - hjjhjjhj"
         assert varshini["daily_rent"] == 800
 
@@ -587,7 +588,7 @@ class TestPdfExcelCsvImport:
         assert avail_xlsx.status_code == 200 and avail_xlsx.content[:2] == b"PK"
         wb_avail = load_workbook(io.BytesIO(avail_xlsx.content))
         avail_rows = [r for r in list(wb_avail.active.iter_rows(values_only=True))[4:] if r and r[0]]
-        assert avail_rows and all(r[2] == "available" for r in avail_rows)
+        assert avail_rows and all(r[1] == "available" for r in avail_rows)
 
         # Track Ravi E2E driver + vehicle for cleanup
         ravi_drv = requests.get(f"{API}/drivers", headers=hdrs, params={"q": ravi_e2e}).json()[0]
@@ -664,7 +665,7 @@ class TestPdfExcelCsvImport:
         board_before = requests.get(f"{API}/board", headers=hdrs, params={"city": "Tiruppur"}).json()
         today_str = board_before["date"]
         v_board = next(x for x in board_before["rows"] if x["id"] == varshini["id"])
-        assert v_board["package"] == "Silver Package"
+        assert "package" not in v_board
         assert v_board["expected"] == 800
 
         y_now, m_now = int(today_str[:4]), int(today_str[5:7])
@@ -673,7 +674,7 @@ class TestPdfExcelCsvImport:
             headers=staff_hdrs,
             params={"year": y_now, "month": m_now},
         ).json()
-        assert cal["driver"]["package"] == "Silver Package"
+        assert "package" not in cal["driver"]
         assert cal["driver"]["current_vehicle"]["reg_no"] == "TUP001 - hjjhjjhj"
         assert len(cal["days"]) >= 28
 
@@ -701,7 +702,7 @@ class TestPdfExcelCsvImport:
 
         detail = requests.get(f"{API}/transactions/{txn['id']}", headers=hdrs).json()
         assert detail["status"] == "approved"
-        assert detail["driver"]["package"] == "Silver Package"
+        assert "package" not in detail["driver"]
 
         daily_rep = requests.get(f"{API}/reports/daily", headers=hdrs, params={"date": today_str, "city": "Tiruppur"}).json()
         assert any(row[0] == txn["id"] for row in daily_rep["rows"])
@@ -745,6 +746,7 @@ class TestPdfExcelCsvImport:
             assert pr.status_code == 200, pr.text
             parsed = pr.json()
             assert parsed["total_rows"] == 350
+            assert all("package" not in r for r in parsed["rows"])
             assert all(r["reg_no"] == "" for r in parsed["rows"][340:])
 
             t0 = time.monotonic()
@@ -799,7 +801,7 @@ class TestPdfExcelCsvImport:
         tpl_d = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "drivers"})
         assert tpl_d.status_code == 200, tpl_d.text
         wb_d = load_workbook(io.BytesIO(tpl_d.content))
-        assert [c.value for c in wb_d.active[1]] == ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date"]
+        assert [c.value for c in wb_d.active[1]] == ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"]
 
         tpl_v = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "vehicles"})
         assert tpl_v.status_code == 200, tpl_v.text
@@ -822,7 +824,6 @@ class TestPdfExcelCsvImport:
                             "driver_code": code,
                             "mobile": "7904800475",
                             "reg_no": f"TUP001 - {veh_tag}",
-                            "package": "Silver Package",
                             "city": "Tiruppur",
                             "joining_date": "2026-10-03",
                             "daily_rent": 700,
@@ -845,7 +846,7 @@ class TestPdfExcelCsvImport:
             d = drvs[0]
             created_did = d["id"]
             assert d["vehicle_no"] == f"TUP001 - {veh_tag}"
-            assert d["package"] == "Silver Package"
+            assert "package" not in d
             assert d["city"] == "Tiruppur"
             assert d["joining_date"] == "2026-10-03"
 

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, Download, Loader2, MapPin } from "lucide-react";
+import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DriverFormDialog, AdjustmentsDialog } from "@/components/DriverDialogs";
 import { VehicleAssignDialog } from "@/components/Vehicles";
 import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
-import { inr, todayIso } from "@/lib/format";
+import { inr, todayIso, FLEET_CITIES } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader, Pager, StatCard, usePaged } from "@/components/kit";
 
@@ -19,12 +20,16 @@ export default function DriversPage() {
   const [edit, setEdit] = useState(undefined);
   const [adj, setAdj] = useState(null);
   const [veh, setVeh] = useState(null);
+  const [toDelete, setToDelete] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState("all");
 
-  const cities = useMemo(() => [...new Set(rows.map((d) => d.city).filter(Boolean))].sort(), [rows]);
+  const cities = useMemo(() => {
+    const set = new Set([...FLEET_CITIES, ...rows.map((d) => d.city).filter(Boolean)]);
+    return [...set].sort();
+  }, [rows]);
   const filtered = useMemo(
     () => rows.filter((d) => (status === "all" || d.status === status) && (city === "all" || d.city === city)),
     [rows, status, city]
@@ -60,7 +65,7 @@ export default function DriversPage() {
       if (status !== "all") params.status = status;
       params.format = "xlsx";
       const r = await api.get("/drivers", { params, responseType: "blob" });
-      downloadBlob(r.data, `route39_drivers_${todayIso()}.xlsx`);
+      downloadBlob(r.data, `myvolt_drivers_${todayIso()}.xlsx`);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -132,7 +137,7 @@ export default function DriversPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Driver, ID, Phone, Vehicle, Package…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="drivers-search" />
+          <Input placeholder="Search Driver, ID, Phone, Vehicle…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="drivers-search" />
           <Select value={city} onValueChange={setCity}>
             <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="drivers-filter-city">
               <SelectValue />
@@ -163,7 +168,6 @@ export default function DriversPage() {
                 <th>ID</th>
                 <th>Phone</th>
                 <th>Vehicle</th>
-                <th>Package</th>
                 <th>City</th>
                 <th>Joining Date</th>
                 <th>Daily Rent</th>
@@ -193,7 +197,6 @@ export default function DriversPage() {
                         <span className="text-muted-foreground">{d.current_vehicle_id || "—"}</span>
                       )}
                     </td>
-                    <td>{d.package || "—"}</td>
                     <td>{d.city}</td>
                     <td className="font-mono text-xs">{d.joining_date || "—"}</td>
                     <td className="font-semibold">{inr(d.daily_rent)}</td>
@@ -211,13 +214,16 @@ export default function DriversPage() {
                       <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(d); }} data-testid={`driver-edit-${d.id}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete driver" onClick={(e) => { e.stopPropagation(); setToDelete(d); }} data-testid={`driver-delete-${d.id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 );
               })}
               {!paged.slice.length && (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-muted-foreground">No drivers found</td>
+                  <td colSpan={9} className="py-8 text-center text-muted-foreground">No drivers found</td>
                 </tr>
               )}
             </tbody>
@@ -229,6 +235,35 @@ export default function DriversPage() {
       <AdjustmentsDialog open={!!adj} onOpenChange={(o) => !o && setAdj(null)} driver={adj} onSaved={load} />
       <VehicleAssignDialog open={!!veh} onOpenChange={(o) => !o && setVeh(null)} driver={veh} onSaved={load} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers" onImported={load} />
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
+        <AlertDialogContent data-testid="driver-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Driver</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete driver <span className="font-semibold text-foreground">{toDelete?.name}</span> ({toDelete?.driver_code})? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#DC2626] hover:bg-[#B91C1C]"
+              onClick={async () => {
+                try {
+                  await api.delete(`/drivers/${toDelete.id}`);
+                  toast.success(`Driver ${toDelete.name} deleted`);
+                  setToDelete(null);
+                  load();
+                } catch (e) {
+                  toast.error(errMsg(e));
+                }
+              }}
+              data-testid="confirm-driver-delete"
+            >
+              Delete driver
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, errMsg } from "@/lib/api";
 import { VehicleSelect, useVehicles } from "@/components/Vehicles";
-import { fmtDate, fmtDateTime, inr } from "@/lib/format";
+import { fmtDate, fmtDateTime, inr, FLEET_CITIES, normalizeCity } from "@/lib/format";
 
-const EMPTY = { name: "", mobile: "", city: "", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", package: "", status: "Active", rent_free_dates: [], driver_code: "", current_vehicle_id: null };
+const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", status: "Active", rent_free_dates: [], driver_code: "", current_vehicle_id: null };
 
 const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs">{label}</Label>{children}</div>;
 
@@ -18,9 +19,13 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
   const [f, setF] = useState(EMPTY);
   const [freeDate, setFreeDate] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const vehicles = useVehicles(open && !driver);
   useEffect(() => {
-    if (open) setF(driver ? { ...EMPTY, ...driver, daily_rent: String(driver.daily_rent) } : EMPTY);
+    if (open) {
+      setF(driver ? { ...EMPTY, ...driver, daily_rent: String(driver.daily_rent) } : EMPTY);
+      setConfirmDelete(false);
+    }
   }, [open, driver]);
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
 
@@ -28,7 +33,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
     e.preventDefault();
     setBusy(true);
     const body = { ...f, daily_rent: Number(f.daily_rent), handover_date: f.handover_date || null, rent_start_date: f.rent_start_date || null };
-    ["id", "summary", "adjustments", "created_at", "current_vehicle", "assignments", "vehicle_no"].forEach((k) => delete body[k]);
+    ["id", "summary", "adjustments", "created_at", "current_vehicle", "assignments", "vehicle_no", "package"].forEach((k) => delete body[k]);
     if (driver) { delete body.driver_code; delete body.current_vehicle_id; }
     else body.driver_code = f.driver_code.trim() || null;
     try {
@@ -63,12 +68,23 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                   onChange={(v) => setF({ ...f, current_vehicle_id: v })} testId="driver-form-vehicle" allowNone />
               </F>
             )}
-            <F label="City"><Input required value={f.city} onChange={set("city")} data-testid="driver-form-city" /></F>
+            <F label="City">
+              <Select value={normalizeCity(f.city)} onValueChange={set("city")}>
+                <SelectTrigger data-testid="driver-form-city"><SelectValue placeholder="Select city" /></SelectTrigger>
+                <SelectContent>
+                  {FLEET_CITIES.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                  {f.city && !FLEET_CITIES.includes(f.city) && f.city !== "Bengaluru" && (
+                    <SelectItem value={f.city}>{f.city}</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </F>
             <F label="Joining date"><Input type="date" required value={f.joining_date} onChange={set("joining_date")} data-testid="driver-form-joining" /></F>
             <F label="Vehicle handover date"><Input type="date" value={f.handover_date || ""} onChange={set("handover_date")} data-testid="driver-form-handover" /></F>
             <F label="Rent calculation start date"><Input type="date" value={f.rent_start_date || ""} onChange={set("rent_start_date")} data-testid="driver-form-rent-start" /></F>
             <F label="Daily rent (₹)"><Input type="number" min="1" required value={f.daily_rent} onChange={set("daily_rent")} data-testid="driver-form-rent" /></F>
-            <F label="Package (optional)"><Input value={f.package || ""} onChange={set("package")} placeholder="e.g. Silver Package" data-testid="driver-form-package" /></F>
             <F label="Status">
               <Select value={f.status} onValueChange={set("status")}>
                 <SelectTrigger data-testid="driver-form-status"><SelectValue /></SelectTrigger>
@@ -90,12 +106,56 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               ))}
             </div>
           </F>
-          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy} data-testid="driver-form-save">Save driver</Button>
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between pt-1">
+            {driver ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-[#DC2626] hover:bg-red-50 hover:text-[#B91C1C] text-xs h-9 gap-1.5"
+                onClick={() => setConfirmDelete(true)}
+                data-testid="driver-form-delete-button"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete driver
+              </Button>
+            ) : <div />}
+            <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy} data-testid="driver-form-save">Save driver</Button>
+            </div>
           </div>
         </form>
       </DialogContent>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent data-testid="driver-form-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Driver</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete driver <span className="font-semibold text-foreground">{driver?.name}</span> ({driver?.driver_code})? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#DC2626] hover:bg-[#B91C1C]"
+              onClick={async () => {
+                try {
+                  await api.delete(`/drivers/${driver.id}`);
+                  toast.success(`Driver ${driver.name} deleted`);
+                  setConfirmDelete(false);
+                  onOpenChange(false);
+                  onSaved();
+                } catch (err) {
+                  toast.error(errMsg(err));
+                }
+              }}
+              data-testid="confirm-driver-form-delete"
+            >
+              Delete driver
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 };

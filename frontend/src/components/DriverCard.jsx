@@ -47,7 +47,6 @@ export const DriverCard = ({ driver, onChangeVehicle }) => (
       <Field label="Mobile" value={driver.mobile} mono testId="driver-card-mobile" />
       <Field label="City" value={driver.city} testId="driver-card-city" />
       <Field label="Daily rent" value={inr(driver.daily_rent)} testId="driver-card-rent" />
-      <Field label="Package" value={driver.package || "—"} testId="driver-card-package" />
       <Field label="Joining date" value={fmtDate(driver.joining_date)} testId="driver-card-joining" />
       <Field label="Vehicle handover" value={fmtDate(driver.handover_date)} testId="driver-card-handover" />
       <Field label="Rent starts" value={fmtDate(driver.rent_start_date)} testId="driver-card-rent-start" />

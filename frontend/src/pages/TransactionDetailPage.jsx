@@ -133,7 +133,6 @@ export default function TransactionDetailPage() {
             </div>
             <div className="divide-y">
               <Row label="Driver ID" testId="txn-driver-code"><span className="font-mono">{t.driver_code}</span></Row>
-              {d?.package && <Row label="Package">{d.package}</Row>}
               <Row label="Mobile"><span className="font-mono">{d?.mobile}</span></Row>
               <Row label="Vehicle ID (this payment)" testId="txn-vehicle-id">
                 {t.vehicle_id ? <span className="font-mono">{t.vehicle_id}</span> : <span className="italic text-muted-foreground">Vehicle ID not recorded</span>}

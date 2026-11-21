@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, ArrowLeftRight, FileUp, Download, Loader2, MapPin } from "lucide-react";
+import { Plus, Pencil, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DriverSearch } from "@/components/DriverSearch";
 import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
-import { inr, todayIso } from "@/lib/format";
+import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
 import { PageHeader, Pager, StatCard, usePaged } from "@/components/kit";
 
-const EMPTY = { reg_no: "", city: "", vehicle_type: "", vin: "", rental_ends: "", status: "Active", details: "" };
+const EMPTY = { reg_no: "", city: "Bangalore", vehicle_type: "", vin: "", rental_ends: "", status: "Active", details: "" };
 const STATUS_CLS = {
   rented: "st-verified",
   available: "st-partial",
@@ -23,8 +24,12 @@ const STATUS_CLS = {
 
 const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
   const [f, setF] = useState(EMPTY);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (open) {
+      setConfirmDelete(false);
+      setBusy(false);
       setF(
         vehicle
           ? {
@@ -61,7 +66,20 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
         </DialogHeader>
         <form onSubmit={save} className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1"><Label className="text-xs">Vehicle / Reg. number</Label><Input required value={f.reg_no} onChange={set("reg_no")} className="font-mono" data-testid="vehicle-form-reg" /></div>
-          <div className="space-y-1"><Label className="text-xs">City</Label><Input required value={f.city} onChange={set("city")} placeholder="Bengaluru, Chennai…" data-testid="vehicle-form-city" /></div>
+          <div className="space-y-1">
+            <Label className="text-xs">City</Label>
+            <Select value={normalizeCity(f.city)} onValueChange={set("city")}>
+              <SelectTrigger data-testid="vehicle-form-city"><SelectValue placeholder="Select city" /></SelectTrigger>
+              <SelectContent>
+                {FLEET_CITIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+                {f.city && !FLEET_CITIES.includes(f.city) && f.city !== "Bengaluru" && (
+                  <SelectItem value={f.city}>{f.city}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1"><Label className="text-xs">VIN / Chassis No.</Label><Input value={f.vin} onChange={set("vin")} placeholder="e.g. MBX0007EF2B266083" className="font-mono uppercase" data-testid="vehicle-form-vin" /></div>
           <div className="space-y-1"><Label className="text-xs">Rental Ends</Label><Input type="date" value={f.rental_ends} onChange={set("rental_ends")} data-testid="vehicle-form-rental-ends" /></div>
           <div className="space-y-1"><Label className="text-xs">Vehicle type</Label><Input value={f.vehicle_type} onChange={set("vehicle_type")} placeholder="e.g. Sedan, EV" data-testid="vehicle-form-type" /></div>
@@ -72,12 +90,56 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
             </Select>
           </div>
           <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Details (optional)</Label><Input value={f.details} onChange={set("details")} placeholder="Make, model, colour…" data-testid="vehicle-form-details" /></div>
-          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end sm:col-span-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" data-testid="vehicle-form-save">Save vehicle</Button>
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between sm:col-span-2 pt-1">
+            {vehicle ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-[#DC2626] hover:bg-red-50 hover:text-[#B91C1C] text-xs h-9 gap-1.5"
+                onClick={() => setConfirmDelete(true)}
+                data-testid="vehicle-form-delete-button"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete vehicle
+              </Button>
+            ) : <div />}
+            <div className="flex flex-col-reverse gap-2 w425:flex-row w425:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy} data-testid="vehicle-form-save">Save vehicle</Button>
+            </div>
           </div>
         </form>
       </DialogContent>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent data-testid="vehicle-form-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Vehicle</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete vehicle <span className="font-semibold text-foreground">{vehicle?.reg_no}</span> ({vehicle?.vehicle_id})? This will unassign any active driver.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#DC2626] hover:bg-[#B91C1C]"
+              onClick={async () => {
+                try {
+                  await api.delete(`/vehicles/${vehicle.vehicle_id}`);
+                  toast.success(`Vehicle ${vehicle.reg_no} deleted`);
+                  setConfirmDelete(false);
+                  onOpenChange(false);
+                  onSaved();
+                } catch (err) {
+                  toast.error(errMsg(err));
+                }
+              }}
+              data-testid="confirm-vehicle-form-delete"
+            >
+              Delete vehicle
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 };
@@ -121,6 +183,7 @@ export default function VehiclesPage() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(undefined);
   const [assign, setAssign] = useState(null);
+  const [toDelete, setToDelete] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
@@ -133,7 +196,10 @@ export default function VehiclesPage() {
     return () => clearTimeout(t);
   }, [load]);
 
-  const cities = useMemo(() => [...new Set(rows.map((v) => v.city).filter(Boolean))].sort(), [rows]);
+  const cities = useMemo(() => {
+    const set = new Set([...FLEET_CITIES, ...rows.map((v) => v.city).filter(Boolean)]);
+    return [...set].sort();
+  }, [rows]);
   const filtered = useMemo(
     () =>
       rows.filter((v) => {
@@ -173,7 +239,7 @@ export default function VehiclesPage() {
       if (assignment !== "all") params.assignment = assignment;
       params.format = "xlsx";
       const r = await api.get("/vehicles", { params, responseType: "blob" });
-      downloadBlob(r.data, `route39_vehicles_${todayIso()}.xlsx`);
+      downloadBlob(r.data, `myvolt_vehicles_${todayIso()}.xlsx`);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -324,6 +390,9 @@ export default function VehiclesPage() {
                       <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(v); }} data-testid={`vehicle-edit-${v.vehicle_id}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete vehicle" onClick={(e) => { e.stopPropagation(); setToDelete(v); }} data-testid={`vehicle-delete-${v.vehicle_id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 );
@@ -341,6 +410,35 @@ export default function VehiclesPage() {
       <VehicleDialog open={edit !== undefined} onOpenChange={(o) => !o && setEdit(undefined)} vehicle={edit} onSaved={load} />
       <AssignDriverDialog open={!!assign} onOpenChange={(o) => !o && setAssign(null)} vehicle={assign} onSaved={load} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="vehicles" onImported={load} />
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
+        <AlertDialogContent data-testid="vehicle-delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Vehicle</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete vehicle <span className="font-semibold text-foreground">{toDelete?.reg_no}</span> ({toDelete?.vehicle_id})? This will unassign any active driver.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#DC2626] hover:bg-[#B91C1C]"
+              onClick={async () => {
+                try {
+                  await api.delete(`/vehicles/${toDelete.vehicle_id}`);
+                  toast.success(`Vehicle ${toDelete.reg_no} deleted`);
+                  setToDelete(null);
+                  load();
+                } catch (e) {
+                  toast.error(errMsg(e));
+                }
+              }}
+              data-testid="confirm-vehicle-delete"
+            >
+              Delete vehicle
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

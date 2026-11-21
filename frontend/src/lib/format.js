@@ -31,3 +31,6 @@ export const STATUS = {
 };
 
 export const ROLE_LABEL = { staff: "Staff", accounts: "Accounts", admin: "Admin" };
+
+export const FLEET_CITIES = ["Chennai", "Bangalore", "Coimbatore", "Tiruppur"];
+export const normalizeCity = (c) => (c === "Bengaluru" ? "Bangalore" : c || "Bangalore");

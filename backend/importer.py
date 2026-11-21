@@ -114,15 +114,6 @@ HEADER_ALIASES = {
         "d id",
         "pilot id",
     ),
-    "package": (
-        "package",
-        "plan",
-        "subscription",
-        "rental package",
-        "scheme",
-        "tier",
-        "pack",
-    ),
     "vin": (
         "vin",
         "chassis",
@@ -424,7 +415,10 @@ def clean_status(val: Any, kind: str = "driver") -> str:
     return "Active"
 
 
-SKIP_HEADERS = ("s no", "sl no", "sr no", "serial", "serial number", "no", "sno", "vehicle id")
+SKIP_HEADERS = (
+    "s no", "sl no", "sr no", "serial", "serial number", "no", "sno", "vehicle id",
+    "package", "plan", "subscription", "rental package", "scheme", "tier", "pack",
+)
 
 
 def _match_header_col(header_text: str) -> Optional[str]:
@@ -462,7 +456,6 @@ def _empty_row(today_str: str) -> Dict[str, Any]:
         "handover_date": "",
         "rent_start_date": "",
         "driver_code": "",
-        "package": "",
         "reg_no": "",
         "vehicle_type": "",
         "vin": "",
@@ -523,7 +516,6 @@ def _row_from_mapping(
     item["rent_start_date"] = clean_date(raw.get("rent_start_date"), joining) if not _is_blank(raw.get("rent_start_date")) else ""
     code_raw = re.sub(r"\s*-\s*", "-", str(raw.get("driver_code") or "").strip().upper())
     item["driver_code"] = code_raw if re.match(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$", code_raw) else ""
-    item["package"] = "" if _is_blank(raw.get("package")) else re.sub(r"\s+", " ", str(raw.get("package")).strip())
     item["reg_no"] = reg_no
     item["vehicle_type"] = "" if _is_blank(raw.get("vehicle_type")) else str(raw.get("vehicle_type")).strip()
     item["vin"] = "" if _is_blank(raw.get("vin")) else re.sub(r"\s+", "", str(raw.get("vin")).strip().upper())

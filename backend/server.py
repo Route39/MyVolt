@@ -198,7 +198,6 @@ class DriverIn(BaseModel):
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
     daily_rent: float = Field(gt=0)
-    package: str = ""
     status: Literal["Active", "Inactive", "Suspended"] = "Active"
     rent_free_dates: List[str] = []
 
@@ -265,7 +264,6 @@ class ImportRowIn(BaseModel):
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
     driver_code: Optional[str] = None
-    package: str = ""
     reg_no: str = ""
     vehicle_type: str = ""
     vin: str = ""
@@ -475,17 +473,13 @@ async def list_drivers(q: str = "", city: str = "", status: str = "", format: st
     if format == "xlsx":
         rows = [
             [
-                d.get("driver_code"),
                 d.get("name"),
+                d.get("driver_code"),
                 d.get("mobile"),
-                d.get("city"),
-                d.get("current_vehicle_id") or "",
                 d.get("vehicle_no") or "",
-                d.get("package") or "",
-                d.get("daily_rent"),
+                d.get("city"),
                 d.get("joining_date"),
-                d.get("handover_date") or "",
-                d.get("rent_start_date") or "",
+                d.get("daily_rent"),
                 d.get("status"),
             ]
             for d in drivers
@@ -493,7 +487,7 @@ async def list_drivers(q: str = "", city: str = "", status: str = "", format: st
         return await xlsx_response(
             "drivers",
             "Drivers Master",
-            ["Driver ID", "Driver Name", "Mobile", "City", "Vehicle ID", "Vehicle Reg. No.", "Package", "Daily Rent (₹)", "Joining Date", "Handover Date", "Rent Start Date", "Status"],
+            ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"],
             rows,
             user,
         )
@@ -530,8 +524,8 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
         await check_assignable(body.current_vehicle_id, None)
     code = (body.driver_code or "").strip().upper()
     if code:
-        if not STD_DRIVER_CODE_RX.match(code):
-            raise HTTPException(400, "Driver ID must look like BLR-D-001")
+        if not DRIVER_CODE_RX.match(code):
+            raise HTTPException(400, "Driver ID must look like BLR-D-001 or R39D-TUP001")
         if await db.drivers.find_one({"driver_code": code}):
             raise HTTPException(409, f"Driver ID {code} is already used")
     else:
@@ -559,6 +553,19 @@ async def update_driver(did: str, body: DriverIn, user=Depends(require("admin"))
             action = "Rental amount changed" if k == "daily_rent" else "Driver information changed"
             await audit(user, action, "driver", did, f"{k}: {old.get(k)}", f"{k}: {v}", did)
     return await get_driver(did, user)
+
+
+@api.delete("/drivers/{did}")
+async def delete_driver(did: str, user=Depends(require("admin"))):
+    drv = await get_driver_or_404(did)
+    if drv.get("current_vehicle_id"):
+        vid = drv["current_vehicle_id"]
+        ts = now_iso()
+        await db.vehicle_assignments.update_many({"driver_id": did, "end_at": None}, {"$set": {"end_at": ts}})
+        await db.vehicles.update_one({"vehicle_id": vid}, {"$set": {"rental_status": "available"}})
+    await db.drivers.delete_one({"id": did})
+    await audit(user, "Driver deleted", "driver", did, drv.get("name"), f"{drv.get('driver_code')} · {drv.get('name')}", did)
+    return {"message": f"Driver {drv.get('name')} deleted", "id": did}
 
 
 # ---------- vehicles & assignments ----------
@@ -696,25 +703,19 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
     if format == "xlsx":
         rows = [
             [
-                v.get("vehicle_id"),
                 v.get("reg_no"),
                 v.get("rental_status") if v.get("status") == "Active" else v.get("status"),
                 (v.get("current_driver") or {}).get("name") or "Not Assigned",
-                (v.get("current_driver") or {}).get("driver_code") or "",
-                (v.get("current_driver") or {}).get("mobile") or "",
                 v.get("city"),
                 v.get("vin") or "",
                 v.get("rental_ends") or "(blank)",
-                v.get("vehicle_type") or "",
-                v.get("daily_rent") or "",
-                v.get("details") or "",
             ]
             for v in vehicles
         ]
         return await xlsx_response(
             "vehicles",
             "Vehicles Master",
-            ["Vehicle ID", "Vehicle", "Status", "Driver", "Driver ID", "Mobile", "City", "VIN", "Rental Ends", "Vehicle Type", "Daily Rent (₹)", "Details"],
+            ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"],
             rows,
             user,
         )
@@ -765,29 +766,42 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
     return await db.vehicles.find_one({"vehicle_id": vid}, P)
 
 
+@api.delete("/vehicles/{vid}")
+async def delete_vehicle(vid: str, user=Depends(require("admin"))):
+    veh = await db.vehicles.find_one({"vehicle_id": vid}, P)
+    if not veh:
+        raise HTTPException(404, "Vehicle not found")
+    ts = now_iso()
+    await db.vehicle_assignments.update_many({"vehicle_id": vid, "end_at": None}, {"$set": {"end_at": ts}})
+    await db.drivers.update_many({"current_vehicle_id": vid}, {"$set": {"current_vehicle_id": None, "vehicle_no": ""}})
+    await db.vehicles.delete_one({"vehicle_id": vid})
+    await audit(user, "Vehicle deleted", "vehicle", vid, veh.get("reg_no"), f"{veh.get('vehicle_id')} · {veh.get('reg_no')}")
+    return {"message": f"Vehicle {vid} deleted", "vehicle_id": vid}
+
+
 @api.get("/import/template")
 async def import_template(mode: str = "drivers_and_vehicles", user=Depends(require("admin"))):
     wb = Workbook()
     ws = wb.active
     if mode == "drivers":
         ws.title = "Drivers Template"
-        cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date"]
+        cols = ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"]
         ws.append(cols)
-        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03"])
+        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Tiruppur", "2026-10-03", 800, "Active"])
         fname = "myvolt_drivers_template.xlsx"
     elif mode == "vehicles":
         ws.title = "Vehicles Template"
         cols = ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"]
         ws.append(cols)
-        ws.append(["141 - KA51AJ2624", "available", "Not Assigned", "Bengaluru", "MBX0007EF2B266083", "(blank)"])
-        ws.append(["150 - KA05AM1234", "rented", "Ravi", "Bengaluru", "MBX0007EF2B260000", "2026-11-25"])
+        ws.append(["141 - KA51AJ2624", "available", "Not Assigned", "Bangalore", "MBX0007EF2B266083", "(blank)"])
+        ws.append(["150 - KA05AM1234", "rented", "Ravi", "Bangalore", "MBX0007EF2B260000", "2026-11-25"])
         fname = "myvolt_vehicles_template.xlsx"
     else:
         ws.title = "Import Template"
-        cols = ["Driver", "ID", "Phone", "Vehicle", "Package", "City", "Joining Date", "VIN", "Rental Ends", "Daily Rent (₹)", "Status", "Details"]
+        cols = ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "VIN", "Rental Ends", "Daily Rent (₹)", "Status"]
         ws.append(cols)
-        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Silver Package", "Tiruppur", "2026-10-03", "MBX0007EF2B260000", "2026-11-25", 800, "rented", "Route39 EV Fleet"])
-        ws.append(["Not Assigned", "", "", "141 - KA51AJ2624", "", "Bengaluru", "", "MBX0007EF2B266083", "(blank)", 850, "available", "Available EV"])
+        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Tiruppur", "2026-10-03", "MBX0007EF2B260000", "2026-11-25", 800, "Active"])
+        ws.append(["Not Assigned", "", "", "141 - KA51AJ2624", "Bangalore", "", "MBX0007EF2B266083", "(blank)", 850, "available"])
         fname = "myvolt_import_template.xlsx"
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
@@ -948,7 +962,6 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 raw_name = ""
             vin_clean = "" if importer._is_blank(row.vin) else re.sub(r"\s+", "", row.vin.strip().upper())
             rental_ends_clean = "" if importer._is_blank(row.rental_ends) else importer.clean_date(row.rental_ends, row.rental_ends.strip())
-            pkg_clean = "" if importer._is_blank(row.package) else re.sub(r"\s+", " ", row.package.strip())
             raw_rental_st = (row.rental_status or "").strip().lower()
             if not raw_rental_st and (row.status or "").strip().lower() in ("available", "rented"):
                 raw_rental_st = row.status.strip().lower()
@@ -1056,7 +1069,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                     veh_doc = veh_by_rk.get(reg_key(reg_clean))
 
                 if not drv_doc:
-                    if code_in and STD_DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
+                    if code_in and DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
                         code = code_in
                     else:
                         code = alloc_code("driver", city_prefix(city))
@@ -1073,7 +1086,6 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         "handover_date": handover,
                         "rent_start_date": rent_start_dt,
                         "daily_rent": daily_rent,
-                        "package": pkg_clean,
                         "status": drv_status,
                         "rent_free_dates": [],
                         "vehicle_no": stored_drv_veh_no,
@@ -1096,8 +1108,6 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         upd_d["joining_date"] = joining
                         upd_d["handover_date"] = handover
                         upd_d["rent_start_date"] = rent_start_dt
-                    if pkg_clean:
-                        upd_d["package"] = pkg_clean
                     if has_mobile:
                         upd_d["mobile"] = mobile
                         drv_by_name_mob[(drv_doc.get("name", "").strip().lower(), mobile)] = drv_doc
@@ -1712,7 +1722,7 @@ async def xlsx_response(kind, title, cols, rows, user):
     wb.save(buf)
     await audit(user, "Report exported", "report", kind, None, title)
     return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="route39_{kind}_{today_ist().isoformat()}.xlsx"'})
+                    headers={"Content-Disposition": f'attachment; filename="myvolt_{kind}_{today_ist().isoformat()}.xlsx"'})
 
 
 # ---------- dashboards ----------
@@ -1740,7 +1750,7 @@ def day_row(drv, txns, d: date):
         st = "rejected" if txns else "unpaid"
     last = txns[-1] if txns else {}
     return {"id": drv["id"], "name": drv["name"], "driver_code": drv.get("driver_code"), "mobile": drv["mobile"],
-            "city": drv["city"], "package": drv.get("package") or "", "current_vehicle_id": drv.get("current_vehicle_id"), "vehicle_no": drv.get("vehicle_no"),
+            "city": drv["city"], "current_vehicle_id": drv.get("current_vehicle_id"), "vehicle_no": drv.get("vehicle_no"),
             "daily_rent": drv["daily_rent"], "driver_status": drv.get("status"), "eligible": eligible,
             "expected": expected, "submitted": sum(t["amount"] for t in act), "verified": verified,
             "outstanding": max(expected - verified, 0.0), "status": st, "staff": last.get("submitted_by_name"),
@@ -1752,7 +1762,7 @@ def driver_filter(q):
         return {}
     rx = {"$regex": re.escape(q.strip()), "$options": "i"}
     compact = re.sub(r"[^A-Za-z0-9]", "", q)
-    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}, {"package": rx}, {"city": rx}]
+    ors = [{"name": rx}, {"mobile": rx}, {"vehicle_no": rx}, {"id": rx}, {"driver_code": rx}, {"current_vehicle_id": rx}, {"city": rx}]
     if compact:
         ors.append({"vehicle_no": {"$regex": r"\s*".join(compact), "$options": "i"}})
     return {"$or": ors}
@@ -1917,6 +1927,7 @@ async def run_seed():
         logger.error("Password migration failed: %s", e)
     try:
         await migrate_ids()
+        await db.drivers.update_many({"package": {"$exists": True}}, {"$unset": {"package": ""}})
         logger.info("Driver/vehicle ID migration complete")
     except Exception as e:
         logger.error("ID migration failed: %s", e)
