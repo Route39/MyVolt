@@ -295,7 +295,7 @@ export default function VehiclesPage() {
               {paged.slice.map((v) => {
                 const displayStatus = v.status === "Active" ? (v.current_driver ? "rented" : v.rental_status || "available") : v.status;
                 return (
-                  <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`}>
+                  <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`} onClick={() => setEdit(v)} className="cursor-pointer">
                     <td className="font-mono text-xs">
                       <span className="font-semibold text-[#17212B]">{v.reg_no}</span>{" "}
                       {/* <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] text-[#64748B]">{v.vehicle_id}</span> */}
@@ -318,10 +318,10 @@ export default function VehiclesPage() {
                     <td className="font-mono text-xs">{v.vin || "—"}</td>
                     <td className="font-mono text-xs">{v.rental_ends || "(blank)"}</td>
                     <td className="whitespace-nowrap text-right">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={() => setAssign(v)} data-testid={`vehicle-assign-${v.vehicle_id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={(e) => { e.stopPropagation(); setAssign(v); }} data-testid={`vehicle-assign-${v.vehicle_id}`}>
                         <ArrowLeftRight className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={() => setEdit(v)} data-testid={`vehicle-edit-${v.vehicle_id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(v); }} data-testid={`vehicle-edit-${v.vehicle_id}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </td>

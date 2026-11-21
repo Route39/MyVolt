@@ -175,7 +175,7 @@ export default function DriversPage() {
               {paged.slice.map((d) => {
                 const showVehIdBadge = false; // was: d.current_vehicle_id && !(d.vehicle_no || "").includes(d.current_vehicle_id);
                 return (
-                  <tr key={d.id} data-testid={`driver-row-${d.id}`}>
+                  <tr key={d.id} data-testid={`driver-row-${d.id}`} onClick={() => setEdit(d)} className="cursor-pointer">
                     <td className="font-medium">{d.name}</td>
                     <td className="font-mono text-xs font-semibold">{d.driver_code}</td>
                     <td className="font-mono text-xs">{d.mobile}</td>
@@ -199,16 +199,16 @@ export default function DriversPage() {
                     <td className="font-semibold">{inr(d.daily_rent)}</td>
                     <td>{d.status}</td>
                     <td className="whitespace-nowrap text-right">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Open calendar" onClick={() => nav(`/calendar?driver=${d.id}`)} data-testid={`driver-calendar-${d.id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Open calendar" onClick={(e) => { e.stopPropagation(); nav(`/calendar?driver=${d.id}`); }} data-testid={`driver-calendar-${d.id}`}>
                         <CalendarDays className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Change vehicle" onClick={() => setVeh(d)} data-testid={`driver-vehicle-${d.id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Change vehicle" onClick={(e) => { e.stopPropagation(); setVeh(d); }} data-testid={`driver-vehicle-${d.id}`}>
                         <ArrowLeftRight className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Adjustments" onClick={() => setAdj(d)} data-testid={`driver-adjust-${d.id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Adjustments" onClick={(e) => { e.stopPropagation(); setAdj(d); }} data-testid={`driver-adjust-${d.id}`}>
                         <SlidersHorizontal className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={() => setEdit(d)} data-testid={`driver-edit-${d.id}`}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(d); }} data-testid={`driver-edit-${d.id}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </td>
