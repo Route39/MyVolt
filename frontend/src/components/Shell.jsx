@@ -158,7 +158,7 @@ export const Shell = () => {
             {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
           <div className="hidden truncate text-[13px] font-semibold text-[#17212B] sm:block" data-testid="page-title">{title}</div>
-          <div className="ml-auto hidden w-[300px] md:block">
+          <div className="ml-auto hidden w-[220px] md:block w992:w-[300px] w1440:w-[360px]">
             <DriverSearch compact value={null} onSelect={(d) => nav(`/calendar?driver=${d.id}`)} placeholder="Search drivers…" testId="global-search" />
           </div>
           <div className="ml-auto flex items-center gap-2 md:ml-2">
@@ -176,7 +176,7 @@ export const Shell = () => {
             </Button>
           </div>
         </header>
-        <main className="mx-auto max-w-[1520px] px-3 py-5 sm:px-6">
+        <main className="mx-auto max-w-[1520px] px-3 py-4 w425:px-4 sm:px-6 sm:py-5 w1440:px-8 w1600:max-w-none">
           <Outlet />
         </main>
       </div>
