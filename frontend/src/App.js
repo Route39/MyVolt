@@ -18,6 +18,8 @@ import DriversPage from "@/pages/DriversPage";
 import StaffPage from "@/pages/StaffPage";
 import VehiclesPage from "@/pages/VehiclesPage";
 
+const ALL = ["staff", "accounts", "admin"];
+
 const Guard = ({ roles, children }) => {
   const { hasRole } = useUser();
   if (hasRole(...roles)) return children;
@@ -62,8 +64,8 @@ const Shell = () => {
         <Route path="/transactions/:id" element={<TransactionDetailPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/reports" element={<Guard roles={["accounts", "admin"]}><ReportsPage /></Guard>} />
-        <Route path="/drivers" element={<Guard roles={["admin"]}><DriversPage /></Guard>} />
-        <Route path="/vehicles" element={<Guard roles={["admin"]}><VehiclesPage /></Guard>} />
+        <Route path="/drivers" element={<Guard roles={ALL}><DriversPage /></Guard>} />
+        <Route path="/vehicles" element={<Guard roles={ALL}><VehiclesPage /></Guard>} />
         <Route path="/staff" element={<Guard roles={["admin"]}><StaffPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

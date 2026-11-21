@@ -44,18 +44,23 @@ def _cleanup_test_records():
             m.drivers.delete_one({"id": d["id"]})
             m.vehicle_assignments.delete_many({"driver_id": d["id"]})
             m.audit_logs.delete_many({"driver_id": d["id"]})
-    for name_rx in [f"^Ravi_{SUFFIX}$", f"^Ravi_E2E_{SUFFIX}$"]:
-        d = m.drivers.find_one({"name": {"$regex": name_rx}})
-        if d:
-            m.drivers.delete_one({"id": d["id"]})
-            m.vehicle_assignments.delete_many({"driver_id": d["id"]})
-            m.audit_logs.delete_many({"driver_id": d["id"]})
+    for name_rx in [re.compile(r"^Ravi_"), re.compile(r"^TEST_")]:
+        drvs = list(m.drivers.find({"name": name_rx}, {"_id": 0, "id": 1, "current_vehicle_id": 1}))
+        if drvs:
+            dids = [d["id"] for d in drvs]
+            m.transactions.delete_many({"driver_id": {"$in": dids}})
+            m.vehicle_assignments.delete_many({"driver_id": {"$in": dids}})
+            m.audit_logs.delete_many({"driver_id": {"$in": dids}})
+            m.drivers.delete_many({"id": {"$in": dids}})
     for rk in ["TUP001HJJHJJHJ", "141KA51AJ2624", "150KA05AM1234"]:
         v = m.vehicles.find_one({"reg_key": rk})
         if v:
             m.vehicles.delete_one({"vehicle_id": v["vehicle_id"]})
             m.audit_logs.delete_many({"entity_id": v["vehicle_id"]})
-    m.drivers.delete_many({"mobile": {"$in": ["9845099001", "9840099002", "9876543210"]}})
+    m.vehicles.delete_many({"reg_no": re.compile(r"^(TEST_|B[0-9]{3} - TN66Z|141 - KA51|150 - KA05|TUP001)")})
+    m.vehicles.delete_many({"vin": re.compile(r"^(MBX0007BULK|MBX0007EF2B)")})
+    m.drivers.delete_many({"mobile": {"$in": ["9845099001", "9840099002", "9876543210", "9845099887", "7904800475"]}})
+    m.drivers.delete_many({"mobile": re.compile(r"^91[0-9]{8}$")})
     m.audit_logs.delete_many({"action": "Bulk data imported", "ts": {"$gte": "2026-11-20"}})
 
 
@@ -729,7 +734,7 @@ class TestPdfExcelCsvImport:
             city = cities[i % len(cities)]
             pkg = packages[i % len(packages)]
             code = f"R39D-{bulk_tag}{i:03d}"
-            mob = f"91{i:08d}"
+            mob = f"9{int(SUFFIX, 16) % 1000:03d}{i:06d}"
             if i < 340:
                 veh = f"B{i:03d} - TN66Z{1000 + i}"
                 vin = f"MBX0007{bulk_tag}{i:04d}"

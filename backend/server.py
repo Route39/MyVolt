@@ -38,7 +38,7 @@ INDEXES: dict[str, list[IndexModel]] = {
     "users": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
         IndexModel([("mobile", ASCENDING)], name="mobile", unique=True,
-                   partialFilterExpression={"mobile": {"$type": "string"}}),
+                   partialFilterExpression={"mobile": {"$type": "string", "$gt": ""}}),
     ],
     "drivers": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
@@ -185,7 +185,7 @@ class ChangePasswordIn(BaseModel):
 
 class UserIn(BaseModel):
     name: str = Field(min_length=2)
-    mobile: str
+    mobile: str = ""
     email: str = ""
     role: Literal["staff", "accounts", "admin"]
     active: bool = True
@@ -213,6 +213,7 @@ class DriverIn(BaseModel):
 class DriverCreate(DriverIn):
     driver_code: Optional[str] = None
     current_vehicle_id: Optional[str] = None
+    vehicle_no: Optional[str] = ""
 
 
 class VehicleIn(BaseModel):
@@ -298,7 +299,10 @@ async def root():
 
 
 def clean_user_mobile(raw: str) -> str:
-    digits = importer.clean_mobile(raw)
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    digits = importer.clean_mobile(s)
     if len(digits) != 10:
         raise HTTPException(400, "Enter a valid 10-digit mobile number")
     return digits
@@ -370,7 +374,7 @@ async def list_staff(user=Depends(current_user)):
 @api.post("/users")
 async def create_user(body: UserIn, user=Depends(require("admin"))):
     mobile = clean_user_mobile(body.mobile)
-    if await db.users.find_one({"mobile": mobile}):
+    if mobile and await db.users.find_one({"mobile": mobile}):
         raise HTTPException(409, "A user with this mobile number already exists")
     email = (body.email or "").strip().lower()
     if email and await db.users.find_one({"email": email}):
@@ -526,6 +530,8 @@ STD_DRIVER_CODE_RX = re.compile(r"^[A-Z]{2,5}-D-\d{3,}$")
 async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
     last = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(20000)
     nums = [int(d["id"].split("-")[-1]) for d in last if d["id"].split("-")[-1].isdigit()]
+    ctr = await db.counters.find_one_and_update({"id": "driver_id_seq"}, {"$inc": {"seq": 1}}, upsert=True, return_document=ReturnDocument.AFTER)
+    next_num = max(max(nums) if nums else 1000, int(ctr.get("seq", 1000))) + 1
     data = body.model_dump(exclude={"driver_code", "current_vehicle_id"})
     data["handover_date"] = data["handover_date"] or data["joining_date"]
     data["rent_start_date"] = data["rent_start_date"] or data["handover_date"]
@@ -549,7 +555,8 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
             raise HTTPException(409, f"Driver ID {code} is already used")
     else:
         code = await next_code("driver", city_prefix(data["city"]))
-    doc = {"id": f"R39-DRV-{(max(nums) if nums else 1000) + 1}", "driver_code": code, **data, "vehicle_no": "",
+    stored_veh_no = (body.vehicle_no or "").strip().upper() if body.vehicle_no else ""
+    doc = {"id": f"R39-DRV-{next_num}", "driver_code": code, **data, "vehicle_no": stored_veh_no,
            "current_vehicle_id": None, "adjustments": [], "created_at": now_iso()}
     await db.drivers.insert_one(doc)
     doc.pop("_id", None)
@@ -594,6 +601,7 @@ async def delete_driver(did: str, user=Depends(require("admin"))):
         await db.vehicles.update_one({"vehicle_id": vid}, {"$set": {"rental_status": "available"}})
     await db.vehicle_assignments.update_many({"driver_id": did, "end_at": None}, {"$set": {"end_at": ts, "ended_by_name": user["name"]}})
     await db.drivers.delete_one({"id": did})
+    await db.transactions.delete_many({"driver_id": did})
     await db.notifications.delete_many({"driver_id": did})
     await audit(user, "Driver deleted", "driver", did, drv.get("name"), f"{drv.get('driver_code')} · {drv.get('name')}", did)
     return {"message": f"Driver {drv.get('name')} deleted", "id": did}
@@ -1338,7 +1346,7 @@ ALLOWED = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp"
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user=Depends(require("staff", "accounts", "admin"))):
+async def upload(file: UploadFile = File(...), user=Depends(require("staff", "admin"))):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ALLOWED:
         raise HTTPException(400, "Only JPG, JPEG, PNG or WEBP images are allowed")
@@ -1472,7 +1480,7 @@ async def validate_payment(method, utr, file_id, exclude_id=None):
 
 
 @api.post("/transactions")
-async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "admin"))):
+async def create_txn(body: TxnIn, user=Depends(require("staff", "admin"))):
     drv = await get_driver_or_404(body.driver_id)
     settings = await get_settings()
     try:
@@ -1576,6 +1584,8 @@ async def approve_txn(tid: str, user=Depends(require("accounts", "admin"))):
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be approved (current: {t['status']})")
+    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
+        raise HTTPException(403, "You cannot approve a payment you entered or changed yourself")
     upd = {"status": "approved", "verified_by": user["id"], "verified_by_name": user["name"], "verified_at": now_iso()}
     if not await db.transactions.find_one_and_update({"id": tid, "status": "pending"}, {"$set": upd}):
         raise HTTPException(409, "This payment was already processed by someone else")
@@ -1588,6 +1598,8 @@ async def reject_txn(tid: str, body: RejectIn, user=Depends(require("accounts", 
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be rejected (current: {t['status']})")
+    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
+        raise HTTPException(403, "You cannot reject a payment you entered or changed yourself")
     reason = body.remarks.strip()
     upd = {"status": "rejected", "verified_by": user["id"], "verified_by_name": user["name"],
            "verified_at": now_iso(), "rejection_reason": reason}

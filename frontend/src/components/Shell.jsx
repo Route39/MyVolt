@@ -20,8 +20,8 @@ const SECTIONS = [
     { to: "/reports", label: "Reports & Analytics", icon: BarChart3, roles: ["accounts", "admin"], id: "reports" },
   ] },
   { title: "Operations", items: [
-    { to: "/drivers", label: "Driver Management", icon: IdCard, roles: ["admin"], id: "drivers" },
-    { to: "/vehicles", label: "Vehicle Management", icon: Car, roles: ["admin"], id: "vehicles" },
+    { to: "/drivers", label: "Driver Management", icon: IdCard, roles: ALL, id: "drivers" },
+    { to: "/vehicles", label: "Vehicle Management", icon: Car, roles: ALL, id: "vehicles" },
     { to: "/staff", label: "Staff Management", icon: UserCog, roles: ["admin"], id: "staff" },
   ] },
 ];

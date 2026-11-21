@@ -7,7 +7,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv("/app/frontend/.env")
+load_dotenv("/app/backend/.env")
+
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 IST = timezone(timedelta(hours=5, minutes=30))
 TODAY = datetime.now(IST).date()
@@ -35,7 +40,8 @@ def upload(uid="u-staff-1"):
 @pytest.fixture(scope="module")
 def test_driver():
     """A TEST_ driver whose rent started 15 days ago (no delete endpoint exists -> stays in DB)."""
-    body = {"name": f"TEST_Driver {uuid.uuid4().hex[:4]}", "mobile": "9000000001", "vehicle_no": "ka 99 zz 0001",
+    mob = f"98{uuid.uuid4().int % 100000000:08d}"
+    body = {"name": f"TEST_Driver {uuid.uuid4().hex[:4]}", "mobile": mob, "vehicle_no": "ka 99 zz 0001",
             "city": "TestCity", "joining_date": (TODAY - timedelta(days=15)).isoformat(), "daily_rent": 500}
     r = requests.post(f"{API}/drivers", headers=h("u-admin"), json=body)
     assert r.status_code == 200, r.text
@@ -49,6 +55,7 @@ def test_driver():
 def make_txn(driver, day_offset, uid="u-staff-1", amount=500, **kw):
     body = {"driver_id": driver["id"], "payment_date": (TODAY - timedelta(days=day_offset)).isoformat(),
             "amount": amount, "utr": utr(), "method": "UPI", "file_id": upload(uid if uid != "u-acc-1" else "u-staff-1"),
+            "vehicle_id": kw.pop("vehicle_id", None) or driver.get("current_vehicle_id") or "CHN-001",
             **kw}
     return requests.post(f"{API}/transactions", headers=h(uid), json=body), body
 
@@ -116,7 +123,7 @@ class TestTransactions:
 
     def test_missing_screenshot_and_short_utr(self, test_driver):
         body = {"driver_id": test_driver["id"], "payment_date": (TODAY - timedelta(days=14)).isoformat(),
-                "amount": 500, "utr": "12", "method": "UPI"}
+                "amount": 500, "utr": "12", "method": "UPI", "vehicle_id": "CHN-001"}
         assert requests.post(f"{API}/transactions", headers=h("u-staff-1"), json=body).status_code == 400
         body["utr"] = utr()
         assert requests.post(f"{API}/transactions", headers=h("u-staff-1"), json=body).status_code == 400
@@ -238,6 +245,7 @@ class TestAdmin:
         assert x.status_code == 200 and x.content[:2] == b"PK"
 
     def test_audit_logs(self, test_driver):
+        make_txn(test_driver, 1)
         r = requests.get(f"{API}/audit-logs", headers=h("u-admin"), params={"q": test_driver["id"]})
         assert r.status_code == 200
         acts = {a["action"] for a in r.json()}
