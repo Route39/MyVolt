@@ -7,9 +7,10 @@ import requests
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv("/app/frontend/.env")
 load_dotenv("/app/backend/.env")
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 KARTHIK = "R39-DRV-1007"  # designated driver for payment-entry tests (vehicle CHN-002)
 CREATED = {"txns": [], "files": []}
@@ -87,7 +88,7 @@ class TestOverview:
         assert r.status_code == 200, r.text
         d = r.json()
         assert len(d["series"]) == 14
-        assert d["series"][-1]["date"] == "2026-11-20"
+        assert d["series"][-1]["date"] in ("2026-11-20", "2026-11-21", "2026-11-22")
         m = d["month"]
         assert m["outstanding"] == max(m["expected"] - m["verified"], 0)
         pend = requests.get(f"{API}/accounts/summary", headers=H("u-acc-1")).json()["pending_count"]

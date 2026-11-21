@@ -15,9 +15,9 @@ from PIL import Image
 from pypdf import PdfReader
 
 CITY_ALIASES = {
-    "bangalore": "Bengaluru",
-    "blr": "Bengaluru",
-    "bengaluru": "Bengaluru",
+    "bangalore": "Bangalore",
+    "blr": "Bangalore",
+    "bengaluru": "Bangalore",
     "madras": "Chennai",
     "chn": "Chennai",
     "chennai": "Chennai",
@@ -406,7 +406,7 @@ def clean_reg_no(val: Any) -> str:
     return s_up
 
 
-def clean_city(val: Any, default: str = "Bengaluru") -> str:
+def clean_city(val: Any, default: str = "Bangalore") -> str:
     s = str(val or "").strip()
     if not s:
         return default
@@ -460,7 +460,7 @@ def _empty_row(today_str: str) -> Dict[str, Any]:
         "vehicle_id": "",
         "name": "",
         "mobile": "",
-        "city": "Bengaluru",
+        "city": "Bangalore",
         "daily_rent": 700.0,
         "joining_date": today_str,
         "handover_date": "",

@@ -268,7 +268,7 @@ class ImportRowIn(BaseModel):
     vehicle_id: Optional[str] = None
     name: str = ""
     mobile: str = ""
-    city: str = "Bengaluru"
+    city: str = "Bangalore"
     daily_rent: float = 700.0
     joining_date: str = ""
     handover_date: Optional[str] = None
@@ -476,7 +476,7 @@ async def get_driver_or_404(did):
 async def list_drivers(q: str = "", city: str = "", status: str = "", format: str = "json", user=Depends(current_user)):
     f = driver_filter(q)
     if city and city != "all":
-        f["city"] = city
+        f["city"] = city_query_filter(city)
     if status and status != "all":
         f["status"] = status
     drivers = await db.drivers.find(f, P).sort("name", 1).to_list(20000)
@@ -543,8 +543,8 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
         await check_assignable(body.current_vehicle_id, None)
     code = (body.driver_code or "").strip().upper()
     if code:
-        if not DRIVER_CODE_RX.match(code):
-            raise HTTPException(400, "Driver ID must look like BLR-D-001 or R39D-TUP001")
+        if not STD_DRIVER_CODE_RX.match(code):
+            raise HTTPException(400, "Driver ID must look like BLR-D-001")
         if await db.drivers.find_one({"driver_code": code}):
             raise HTTPException(409, f"Driver ID {code} is already used")
     else:
@@ -606,6 +606,22 @@ CITY_PREFIX = {"bengaluru": "BLR", "bangalore": "BLR", "chennai": "CHN", "coimba
 
 def city_prefix(city):
     return CITY_PREFIX.get(city.strip().lower()) or (re.sub(r"[^A-Z]", "", city.upper())[:3] or "GEN")
+
+
+def city_query_filter(city: str):
+    c = (city or "").strip()
+    if not c or c.lower() == "all":
+        return None
+    cl = c.lower()
+    if cl in ("bengaluru", "bangalore", "blr"):
+        return {"$in": ["Bengaluru", "Bangalore"]}
+    if cl in ("tirupur", "tiruppur"):
+        return {"$in": ["Tiruppur", "Tirupur"]}
+    if cl in ("chennai", "madras", "chn"):
+        return {"$in": ["Chennai", "Madras"]}
+    if cl in ("coimbatore", "cbe"):
+        return {"$in": ["Coimbatore"]}
+    return c
 
 
 def reg_key(reg):
@@ -695,7 +711,7 @@ async def assign_vehicle(drv, vehicle_id, user, reason):
 
 
 @api.post("/drivers/{did}/assign-vehicle")
-async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "accounts", "admin"))):
+async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "admin"))):
     drv = await get_driver_or_404(did)
     await assign_vehicle(drv, (body.vehicle_id or "").strip().upper() or None, user, body.reason)
     return await get_driver(did, user)
@@ -724,7 +740,7 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
             ors.append({"vehicle_id": {"$in": matched_vids}})
         f = {"$or": ors}
     if city and city != "all":
-        f["city"] = city
+        f["city"] = city_query_filter(city)
     if status and status not in ("all", "available", "rented"):
         f["status"] = status
     vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(20000)
@@ -788,12 +804,15 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
     if not old:
         raise HTTPException(404, "Vehicle not found")
     stored_reg = body.reg_no.strip() if " - " in body.reg_no else body.reg_no.strip().upper()
+    dump = body.model_dump()
+    if not dump.get("vehicle_id"):
+        dump["vehicle_id"] = vid
     new = {
-        **body.model_dump(),
+        **dump,
         "reg_no": stored_reg,
         "reg_key": reg_key(stored_reg),
-        "vin": body.vin.strip().upper(),
-        "rental_ends": body.rental_ends.strip(),
+        "vin": (body.vin or "").strip().upper(),
+        "rental_ends": (body.rental_ends or "").strip(),
     }
     if new["reg_key"] != old["reg_key"] and await db.vehicles.find_one({"reg_key": new["reg_key"], "vehicle_id": {"$ne": vid}}):
         raise HTTPException(409, f"A vehicle with registration {new['reg_no']} already exists")
@@ -1003,7 +1022,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
 
     for idx, row in enumerate(body.rows):
         try:
-            city = importer.clean_city(row.city, default="Bengaluru")
+            city = importer.clean_city(row.city, default="Bangalore")
             veh_doc = None
             reg_clean = importer.clean_reg_no(row.reg_no)
             raw_name = re.sub(r"\s+", " ", (row.name or "").strip())
@@ -1507,9 +1526,15 @@ async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = Non
         f["status"] = status
     if driver_id:
         f["driver_id"] = driver_id
-    for field, val in [("driver_name", driver_name), ("utr", utr), ("city", city)]:
+    for field, val in [("driver_name", driver_name), ("utr", utr)]:
         if val.strip():
             f[field] = {"$regex": re.escape(val.strip()), "$options": "i"}
+    if city and city != "all":
+        cq = city_query_filter(city)
+        if isinstance(cq, dict):
+            f["city"] = cq
+        else:
+            f["city"] = {"$regex": re.escape(city.strip()), "$options": "i"}
     ands = []
     if vehicle.strip():
         vrx = {"$regex": re.escape(vehicle.strip()), "$options": "i"}
@@ -1712,8 +1737,8 @@ def txn_rows(txns, extra=()):
 async def build_report(kind, report_date, driver_id, date_from, date_to, city=""):
     rng = {k: v for k, v in [("$gte", date_from), ("$lte", date_to)] if v}
     base = {"payment_date": rng} if rng else {}
-    if city:
-        base["city"] = city
+    if city and city != "all":
+        base["city"] = city_query_filter(city)
     sort = [("payment_date", -1), ("submitted_at", -1)]
     if kind == "daily":
         d = report_date or today_ist().isoformat()
@@ -1841,8 +1866,8 @@ async def board(day: str = Query("", alias="date"), q: str = "", city: str = "",
     except ValueError:
         raise HTTPException(400, "Invalid date")
     f = driver_filter(q)
-    if city:
-        f["city"] = city
+    if city and city != "all":
+        f["city"] = city_query_filter(city)
     if active == "active":
         f["status"] = "Active"
     elif active == "inactive":
