@@ -1443,8 +1443,9 @@ def _scan_payment_screenshot_sync(data, ext):
             fh.write(data)
         with _PAY_OCR_LOCK:                                   # one scan at a time; the model loads once, on first use
             if _PAY_OCR_ENGINE is None:
-                from rapidocr_onnxruntime import RapidOCR
-                _PAY_OCR_ENGINE = RapidOCR()
+                import importlib
+                rapid_mod = importlib.import_module("rapidocr_onnxruntime")
+                _PAY_OCR_ENGINE = getattr(rapid_mod, "RapidOCR")()
             res, _ = _PAY_OCR_ENGINE(tmp)
         lines = [r[1] for r in sorted(res or [], key=lambda r: r[0][0][1])]      # top-to-bottom
         return _read_payment_text(lines)
