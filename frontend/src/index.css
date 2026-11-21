@@ -66,6 +66,7 @@ h1, h2, h3 { font-family: 'Manrope', 'Inter', sans-serif; }
 .st-verified, .st-approved { --st-bg: #FEF2F2; --st-border: #FCA5A5; --st-text: #B91C1C; --st-accent: #DC2626; --st-pill: #FEE2E2; }
 .st-rejected, .st-unpaid { --st-bg: #FFF1F2; --st-border: #FDA4AF; --st-text: #881337; --st-accent: #9F1239; --st-pill: #FFE4E6; }
 .st-partial { --st-bg: #EFF6FF; --st-border: #93C5FD; --st-text: #1D4ED8; --st-accent: #3B82F6; --st-pill: #DBEAFE; }
+.st-joining { --st-bg: #ECFDF5; --st-border: #6EE7B7; --st-text: #047857; --st-accent: #10B981; --st-pill: #D1FAE5; }
 
 .st-pill { background: var(--st-pill); color: var(--st-text); }
 .st-dot { background: var(--st-accent); }

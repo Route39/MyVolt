@@ -28,6 +28,7 @@ export const STATUS = {
   inactive: { label: "Inactive", cls: "st-inactive" },
   not_started: { label: "Not started", cls: "st-not_started" },
   rent_free: { label: "Rent free", cls: "st-rent_free" },
+  joining: { label: "Joined", cls: "st-joining" },
 };
 
 export const ROLE_LABEL = { staff: "Staff", accounts: "Accounts", admin: "Admin" };

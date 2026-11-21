@@ -98,7 +98,16 @@ export default function CalendarPage() {
           <DriverCard driver={driver} onChangeVehicle={hasRole("staff", "accounts", "admin") ? () => setChangeVehicle(true) : null} />
           <div className="order-last space-y-4 w1200:order-none w1200:col-start-1 w1200:row-start-2">
             <RentSummary title="Monthly financial summary" summary={cal.month_summary} prefix="month" />
-            <RentSummary title="Since rent start" summary={cal.overall_summary} prefix="overall" />
+            <RentSummary
+              title="Overall pending amount"
+              subtitle={
+                driver?.joining_date
+                  ? `From ${cal.rent_calc_start || "next day"} to today (joining date ${driver.joining_date} is rent-free)`
+                  : "From day after joining date to today"
+              }
+              summary={cal.overall_summary}
+              prefix="overall"
+            />
           </div>
           <div className="min-w-0 space-y-4 w1200:col-start-2 w1200:row-span-2 w1200:row-start-1">
             <RentCalendar ym={ym} loading={loading} days={cal.days} onDayClick={onDayClick} selectedDate={selected}

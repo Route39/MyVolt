@@ -448,10 +448,18 @@ def rent_start(d):
 
 
 def expected_between(drv, start: date, end: date) -> float:
-    s = max(start, date.fromisoformat(rent_start(drv)))
+    # Rent starts on the day after joining date (joining day has 0 rent)
+    join_dt = date.fromisoformat(drv["joining_date"]) if drv.get("joining_date") else None
+    join_next = (join_dt + timedelta(days=1)) if join_dt else None
+    rs_dt = date.fromisoformat(rent_start(drv))
+    base_start = max(rs_dt, join_next) if join_next else rs_dt
+
+    s = max(start, base_start)
     if end < s:
         return 0.0
     free = set(drv.get("rent_free_dates") or [])
+    if drv.get("joining_date"):
+        free.add(drv["joining_date"])
     days = sum(1 for i in range((end - s).days + 1) if (s + timedelta(days=i)).isoformat() not in free)
     adj = sum(a["amount"] for a in drv.get("adjustments") or [] if s.isoformat() <= a["date"] <= end.isoformat())
     return max(days * drv["daily_rent"] - adj, 0.0)
@@ -460,13 +468,15 @@ def expected_between(drv, start: date, end: date) -> float:
 def summarize(drv, txns, start: date, end: date):
     end = min(end, today_ist())
     s, e = start.isoformat(), end.isoformat()
-    inrange = [t for t in txns if s <= t["payment_date"] <= e]
+    join_str = drv.get("joining_date") or s
+    inrange = [t for t in txns if min(join_str, s) <= t["payment_date"] <= e]
     verified = sum(t["amount"] for t in inrange if t["status"] == "approved")
     pending = sum(t["amount"] for t in inrange if t["status"] == "pending")
     expected = expected_between(drv, start, end)
     return {"expected": expected, "submitted": verified + pending, "verified": verified, "pending": pending,
             "rejected_count": sum(1 for t in inrange if t["status"] == "rejected"),
-            "outstanding": max(expected - verified, 0.0)}
+            "outstanding": max(expected - verified, 0.0),
+            "start_date": s}
 
 
 def natural_sort_key(s: Any) -> list:
@@ -1341,14 +1351,26 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
     rs, today = rent_start(drv), today_ist()
     free = set(drv.get("rent_free_dates") or [])
     adj_dates = {a["date"] for a in drv.get("adjustments") or []}
+
+    joining_date_str = drv.get("joining_date")
+    joining_dt = date.fromisoformat(joining_date_str) if joining_date_str else None
+    # Rent charging starts strictly on the next day after joining date
+    rent_calc_start = (joining_dt + timedelta(days=1)) if joining_dt else date.fromisoformat(rs)
+    rent_calc_start_str = rent_calc_start.isoformat()
+
     days = []
     for i in range(last.day):
         d = first + timedelta(days=i)
         ds = d.isoformat()
+        is_joining = bool(joining_date_str and ds == joining_date_str)
         day_txns = by_date.get(ds, [])
         active = [t for t in day_txns if t["status"] != "rejected"]
         approved = sum(t["amount"] for t in active if t["status"] == "approved")
-        if any(t["status"] == "pending" for t in active):
+
+        if is_joining:
+            # Joining date: NO rent charged, displays green
+            status = "joining" if not active else ("verified" if approved else "pending")
+        elif any(t["status"] == "pending" for t in active):
             status = "pending"
         elif approved:
             status = "verified" if approved >= drv["daily_rent"] else "partial"
@@ -1356,6 +1378,7 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
             status = "rejected"
         else:
             status = "none"
+
         disabled, reason = False, None
         if ds < rs:
             disabled, reason = True, "Before rent start date"
@@ -1363,15 +1386,17 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
             disabled, reason = True, "Future date"
         days.append({
             "date": ds, "status": status, "disabled": disabled, "reason": reason,
-            "rent_free": ds in free, "adjusted": ds in adj_dates,
+            "is_joining": is_joining,
+            "rent_free": is_joining or (ds in free), "adjusted": ds in adj_dates,
             "amount": sum(t["amount"] for t in active) if active else (day_txns[-1]["amount"] if day_txns else 0),
             "txns": [{k: t.get(k) for k in ["id", "amount", "status", "utr", "method", "is_split", "submitted_by_name",
                                             "rejection_reason", "submitted_by", "vehicle_id", "vehicle_no"]} for t in day_txns],
         })
     await enrich_driver(drv)
     return {"driver": {k: v for k, v in drv.items() if k != "adjustments"}, "settings": settings, "days": days,
+            "rent_calc_start": rent_calc_start_str,
             "month_summary": summarize(drv, txns, first, last),
-            "overall_summary": summarize(drv, txns, date.fromisoformat(rs), today)}
+            "overall_summary": summarize(drv, txns, rent_calc_start, today)}
 
 
 # ---------- files ----------

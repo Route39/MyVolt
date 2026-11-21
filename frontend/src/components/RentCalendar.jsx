@@ -5,7 +5,7 @@ import { MONTHS, STATUS, inr, todayIso } from "@/lib/format";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const LEGEND = [
-  ["none", "No entry"], ["pending", "Pending verification"], ["verified", "Verified"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
+  ["none", "No entry"], ["pending", "Pending verification"], ["verified", "Verified"], ["joining", "Joining Date (Rent Free)"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
 ];
 
 export const CalendarLegend = () => (
@@ -46,26 +46,44 @@ const MonthNav = ({ ym, onChange }) => {
 };
 
 const DayCell = ({ day, onClick, selected }) => {
-  const s = STATUS[day.status];
+  const s = STATUS[day.status] || STATUS.none;
   const num = Number(day.date.slice(8));
   const isToday = day.date === todayIso();
+  const isJoining = day.is_joining;
   return (
     <button
       data-testid={`calendar-day-${day.date}`}
       data-status={day.status}
       disabled={day.disabled}
-      title={day.reason || s.label}
+      title={day.reason || (isJoining ? "Joining Date · Rent Free" : s.label)}
       onClick={() => onClick(day)}
-      className={`cal-cell ${s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} relative flex min-h-[48px] min-w-0 flex-col overflow-hidden rounded-md p-1 text-left w375:min-h-[58px] w425:p-1.5 sm:min-h-[76px] sm:p-2 w1600:min-h-[90px]`}
+      className={`cal-cell ${s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} ${
+        isJoining ? "ring-1 ring-[#10B981]/60 font-medium" : ""
+      } relative flex min-h-[48px] min-w-0 flex-col overflow-hidden rounded-md p-1 text-left w375:min-h-[58px] w425:p-1.5 sm:min-h-[76px] sm:p-2 w1600:min-h-[90px]`}
     >
       <div className="flex items-center justify-between">
-        <span className={`text-xs font-semibold sm:text-sm ${isToday ? "text-[var(--r39-green-text)]" : ""}`}>{num}</span>
+        <span className={`text-xs font-semibold sm:text-sm ${isToday ? "text-[var(--r39-green-text)]" : isJoining ? "text-[#047857] font-bold" : ""}`}>
+          {num}
+        </span>
         {day.status !== "none" && <span className="st-dot h-2 w-2 rounded-full" />}
       </div>
-      {day.amount > 0 && <span className="mt-auto truncate text-[9px] font-semibold w425:text-[11px] sm:text-sm" data-testid={`calendar-day-amount-${day.date}`}>{inr(day.amount)}</span>}
-      {day.status !== "none" && <span className="hidden text-[10px] font-medium leading-tight sm:block">{s.label}{day.txns.length > 1 ? ` · ${day.txns.length}` : ""}</span>}
-      {day.status === "none" && day.rent_free && <span className="mt-auto truncate text-[10px] font-medium text-muted-foreground">Rent free</span>}
-      {day.status === "none" && day.adjusted && !day.rent_free && <span className="mt-auto truncate text-[10px] font-medium text-[oklch(0.44_0.1_245)]">Adjusted</span>}
+      {day.amount > 0 && (
+        <span className="mt-auto truncate text-[9px] font-semibold w425:text-[11px] sm:text-sm" data-testid={`calendar-day-amount-${day.date}`}>
+          {inr(day.amount)}
+        </span>
+      )}
+      {isJoining && (
+        <span className="mt-auto truncate text-[10px] font-bold text-[#047857]">Joined · No Rent</span>
+      )}
+      {!isJoining && day.status !== "none" && (
+        <span className="hidden text-[10px] font-medium leading-tight sm:block">{s.label}{day.txns.length > 1 ? ` · ${day.txns.length}` : ""}</span>
+      )}
+      {!isJoining && day.status === "none" && day.rent_free && (
+        <span className="mt-auto truncate text-[10px] font-medium text-muted-foreground">Rent free</span>
+      )}
+      {!isJoining && day.status === "none" && day.adjusted && !day.rent_free && (
+        <span className="mt-auto truncate text-[10px] font-medium text-[oklch(0.44_0.1_245)]">Adjusted</span>
+      )}
     </button>
   );
 };
