@@ -1421,6 +1421,21 @@ def _read_payment_text(lines):
 
 def _scan_payment_screenshot_sync(data, ext):
     global _PAY_OCR_ENGINE
+    # 1. Native macOS Vision OCR via importer
+    try:
+        pages = importer._run_vision_ocr("image", data, "." + ext)
+        tokens = []
+        for p in pages:
+            tokens.extend(p.get("tokens") or [])
+        if tokens:
+            tokens_sorted = sorted(tokens, key=lambda t: (t.get("bbox", [0, 0])[1], t.get("bbox", [0, 0])[0]))
+            lines = [t["text"] for t in tokens_sorted if t.get("text")]
+            if lines:
+                return _read_payment_text(lines)
+    except Exception as e:
+        logger.debug("Native Vision OCR failed: %s", e)
+
+    # 2. RapidOCR fallback
     fd, tmp = tempfile.mkstemp(suffix="." + ext)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -1430,11 +1445,14 @@ def _scan_payment_screenshot_sync(data, ext):
                 from rapidocr_onnxruntime import RapidOCR
                 _PAY_OCR_ENGINE = RapidOCR()
             res, _ = _PAY_OCR_ENGINE(tmp)
+        lines = [r[1] for r in sorted(res or [], key=lambda r: r[0][0][1])]      # top-to-bottom
+        return _read_payment_text(lines)
+    except Exception as e:
+        logger.debug("RapidOCR failed: %s", e)
     finally:
         with suppress(OSError):
             os.remove(tmp)
-    lines = [r[1] for r in sorted(res or [], key=lambda r: r[0][0][1])]      # top-to-bottom
-    return _read_payment_text(lines)
+    return {"is_payment": False, "utr": None}
 
 
 class ScanIn(BaseModel):
