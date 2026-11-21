@@ -116,12 +116,21 @@ HEADER_ALIASES = {
     ),
     "vin": (
         "vin",
+        "vin number",
+        "vin_number",
+        "vin no",
+        "vin number",
         "chassis",
         "chassis no",
         "chassis number",
-        "vin no",
-        "vin number",
         "frame no",
+    ),
+    "vehicle_id": (
+        "vehicle id",
+        "vehicle_id",
+        "vid",
+        "veh id",
+        "v id",
     ),
     "rental_ends": (
         "rental ends",
@@ -416,7 +425,7 @@ def clean_status(val: Any, kind: str = "driver") -> str:
 
 
 SKIP_HEADERS = (
-    "s no", "sl no", "sr no", "serial", "serial number", "no", "sno", "vehicle id",
+    "s no", "sl no", "sr no", "serial", "serial number", "no", "sno",
     "package", "plan", "subscription", "rental package", "scheme", "tier", "pack",
 )
 
@@ -448,6 +457,7 @@ def _build_col_map(row: List[Any]) -> Dict[int, str]:
 
 def _empty_row(today_str: str) -> Dict[str, Any]:
     return {
+        "vehicle_id": "",
         "name": "",
         "mobile": "",
         "city": "Bengaluru",
@@ -517,6 +527,7 @@ def _row_from_mapping(
     code_raw = re.sub(r"\s*-\s*", "-", str(raw.get("driver_code") or "").strip().upper())
     item["driver_code"] = code_raw if re.match(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$", code_raw) else ""
     item["reg_no"] = reg_no
+    item["vehicle_id"] = str(raw.get("vehicle_id") or "").strip().upper()
     item["vehicle_type"] = "" if _is_blank(raw.get("vehicle_type")) else str(raw.get("vehicle_type")).strip()
     item["vin"] = "" if _is_blank(raw.get("vin")) else re.sub(r"\s+", "", str(raw.get("vin")).strip().upper())
     raw_re = raw.get("rental_ends")

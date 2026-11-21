@@ -15,6 +15,7 @@ const PREVIEW_PAGE_SIZE = 50;
 const CHUNK_SIZE = 100;
 
 const blankRow = (city = "Bangalore", rent = 700) => ({
+  vehicle_id: "",
   name: "",
   mobile: "",
   city,
@@ -49,6 +50,8 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   const [previewPage, setPreviewPage] = useState(1);
   const [downloadingTpl, setDownloadingTpl] = useState(false);
   const [result, setResult] = useState(null);
+  const [existingVehicles, setExistingVehicles] = useState([]);
+  const [existingDrivers, setExistingDrivers] = useState([]);
 
   useEffect(() => {
     if (open) {
@@ -60,6 +63,13 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       setProgress(null);
       setPreviewPage(1);
       setResult(null);
+      Promise.all([
+        api.get("/vehicles").catch(() => ({ data: [] })),
+        api.get("/drivers").catch(() => ({ data: [] })),
+      ]).then(([vRes, dRes]) => {
+        setExistingVehicles(vRes.data || []);
+        setExistingDrivers(dRes.data || []);
+      });
     }
   }, [open, defaultMode]);
 
@@ -218,6 +228,89 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
 
   const missingMobileCount = rows.filter((r) => mode !== "vehicles" && r.name?.trim() && !/^\d{10}$/.test(r.mobile || "")).length;
   const missingRegCount = rows.filter((r) => mode === "vehicles" && !r.reg_no?.trim()).length;
+
+  const dupMap = useMemo(() => {
+    const cleanReg = (s) => (s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    const cleanVin = (s) => (s || "").trim().toUpperCase();
+    const isRealVin = (s) => s && s !== "—" && s !== "(BLANK)" && s !== "NONE" && s !== "N/A";
+    const cleanCode = (s) => (s || "").trim().toUpperCase();
+    const cleanMob = (s) => (s || "").replace(/\D/g, "").slice(-10);
+
+    const dbRegs = new Set();
+    const dbVins = new Set();
+    (existingVehicles || []).forEach((v) => {
+      const rk = cleanReg(v.reg_no);
+      if (rk.length > 2) dbRegs.add(rk);
+      const vin = cleanVin(v.vin);
+      if (isRealVin(vin)) dbVins.add(vin);
+    });
+
+    const dbCodes = new Set();
+    const dbMobs = new Set();
+    (existingDrivers || []).forEach((d) => {
+      const c = cleanCode(d.driver_code);
+      if (c) dbCodes.add(c);
+      const m = cleanMob(d.mobile);
+      if (m.length === 10) dbMobs.add(m);
+    });
+
+    const fileRegs = {};
+    const fileVins = {};
+    const fileCodes = {};
+    const fileMobs = {};
+
+    rows.forEach((r) => {
+      const rk = cleanReg(r.reg_no);
+      if (rk.length > 2) fileRegs[rk] = (fileRegs[rk] || 0) + 1;
+      const vin = cleanVin(r.vin);
+      if (isRealVin(vin)) fileVins[vin] = (fileVins[vin] || 0) + 1;
+      const c = cleanCode(r.driver_code);
+      if (c) fileCodes[c] = (fileCodes[c] || 0) + 1;
+      const m = cleanMob(r.mobile);
+      if (m.length === 10) fileMobs[m] = (fileMobs[m] || 0) + 1;
+    });
+
+    return rows.map((r) => {
+      const rk = cleanReg(r.reg_no);
+      const vin = cleanVin(r.vin);
+      const c = cleanCode(r.driver_code);
+      const m = cleanMob(r.mobile);
+
+      const dupRegInFile = rk.length > 2 && fileRegs[rk] > 1;
+      const dupRegInDb = rk.length > 2 && dbRegs.has(rk);
+      const isRegDup = dupRegInFile || dupRegInDb;
+      const regReason = dupRegInFile ? "Duplicate vehicle number in file" : dupRegInDb ? "Vehicle number already exists in database" : null;
+
+      const dupVinInFile = isRealVin(vin) && fileVins[vin] > 1;
+      const dupVinInDb = isRealVin(vin) && dbVins.has(vin);
+      const isVinDup = dupVinInFile || dupVinInDb;
+      const vinReason = dupVinInFile ? "Duplicate VIN in file" : dupVinInDb ? "VIN already exists in database" : null;
+
+      const dupCodeInFile = c && fileCodes[c] > 1;
+      const dupCodeInDb = c && dbCodes.has(c);
+      const isCodeDup = dupCodeInFile || dupCodeInDb;
+      const codeReason = dupCodeInFile ? "Duplicate driver ID in file" : dupCodeInDb ? "Driver ID already exists in database" : null;
+
+      const dupMobInFile = m.length === 10 && fileMobs[m] > 1;
+      const dupMobInDb = m.length === 10 && dbMobs.has(m);
+      const isMobDup = dupMobInFile || dupMobInDb;
+      const mobReason = dupMobInFile ? "Duplicate phone in file" : dupMobInDb ? "Phone already exists in database" : null;
+
+      return {
+        isRegDup,
+        regReason,
+        isVinDup,
+        vinReason,
+        isCodeDup,
+        codeReason,
+        isMobDup,
+        mobReason,
+        hasDuplicate: isRegDup || isVinDup || isCodeDup || isMobDup,
+      };
+    });
+  }, [rows, existingVehicles, existingDrivers]);
+
+  const totalDuplicates = useMemo(() => dupMap.filter((d) => d.hasDuplicate).length, [dupMap]);
   const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
   const safePage = Math.min(previewPage, totalPages);
   const startIdx = (safePage - 1) * PREVIEW_PAGE_SIZE;
@@ -242,7 +335,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
             {isDriversOnly
               ? "Upload your Drivers sheet (Excel, PDF, Image, or CSV). Columns: DRIVER ID, DRIVER NAME, PHONE NUMBER, CITY, JOINING DATE, RENT."
               : isVehiclesOnly
-                ? "Upload your Vehicles sheet (Excel, PDF, Image, or CSV). Columns: Vehicle, Status, Driver, City, VIN, Rental Ends."
+                ? "Upload your Vehicles sheet (Excel, PDF, Image, or CSV). Columns: VEHICLE ID, VEHICLE NUMBER, VIN NUMBER, CITY."
                 : "Upload any Excel (.xlsx), PDF (text or scanned), CSV, or screenshot image (.png, .jpg, .webp) from your old platform. Review or edit extracted records before saving into MyVolt."}
           </DialogDescription>
         </DialogHeader>
@@ -379,6 +472,15 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           </div>
         )}
 
+        {totalDuplicates > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-900" data-testid="import-duplicates-alert">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />
+            <span>
+              <strong>{totalDuplicates} duplicate record(s) detected</strong> (matches in file or already in database). Duplicate cells are highlighted in red below.
+            </span>
+          </div>
+        )}
+
         <div className="min-h-[240px] flex-1 overflow-auto rounded-md border bg-white">
           {rows.length > 0 ? (
             <table className="data-table w-full whitespace-nowrap" data-testid="import-preview-table">
@@ -412,12 +514,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                   )}
                   {isVehiclesOnly && (
                     <>
-                      <th>Vehicle</th>
-                      <th>Status</th>
-                      <th>Driver</th>
-                      <th>City</th>
-                      <th>VIN</th>
-                      <th>Rental Ends</th>
+                      <th>VEHICLE ID</th>
+                      <th>VEHICLE NUMBER</th>
+                      <th>VIN NUMBER</th>
+                      <th>CITY</th>
                     </>
                   )}
                   <th></th>
@@ -426,10 +526,20 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               <tbody>
                 {visibleRows.map((r, localIdx) => {
                   const i = startIdx + localIdx;
+                  const dup = dupMap[i] || {};
                   const statusVal = r.rental_status && r.status === "Active" ? r.rental_status : r.status || "Active";
                   return (
-                    <tr key={i} data-testid={`import-row-${i}`}>
-                      <td className="text-xs text-[#64748B]">{i + 1}</td>
+                    <tr key={i} data-testid={`import-row-${i}`} className={dup.hasDuplicate ? "bg-red-50/50 hover:bg-red-50" : ""}>
+                      <td className="text-xs text-[#64748B]">
+                        <div className="flex items-center gap-1">
+                          <span>{i + 1}</span>
+                          {dup.hasDuplicate && (
+                            <span className="rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold text-white uppercase" title="Duplicate detected">
+                              DUP
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       {isDriversOnly && (
                         <>
                           <td>
@@ -437,7 +547,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.driver_code || ""}
                               onChange={(e) => updateCell(i, "driver_code", e.target.value)}
                               placeholder="DRIVER ID"
-                              className="h-8 min-w-[115px] font-mono text-xs uppercase"
+                              className={`h-8 min-w-[115px] font-mono text-xs uppercase ${
+                                dup.isCodeDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.codeReason || ""}
                               data-testid={`import-row-code-${i}`}
                             />
                           </td>
@@ -455,7 +568,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.mobile || ""}
                               onChange={(e) => updateCell(i, "mobile", e.target.value)}
                               placeholder="PHONE NUMBER"
-                              className="h-8 min-w-[110px] font-mono text-xs"
+                              className={`h-8 min-w-[110px] font-mono text-xs ${
+                                dup.isMobDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.mobReason || ""}
                               data-testid={`import-row-mobile-${i}`}
                             />
                           </td>
@@ -515,7 +631,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.driver_code || ""}
                               onChange={(e) => updateCell(i, "driver_code", e.target.value)}
                               placeholder="R39D-TUP001"
-                              className="h-8 min-w-[115px] font-mono text-xs uppercase"
+                              className={`h-8 min-w-[115px] font-mono text-xs uppercase ${
+                                dup.isCodeDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.codeReason || ""}
                               data-testid={`import-row-code-${i}`}
                             />
                           </td>
@@ -524,7 +643,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.mobile || ""}
                               onChange={(e) => updateCell(i, "mobile", e.target.value)}
                               placeholder="10-digit phone"
-                              className="h-8 min-w-[110px] font-mono text-xs"
+                              className={`h-8 min-w-[110px] font-mono text-xs ${
+                                dup.isMobDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.mobReason || ""}
                               data-testid={`import-row-mobile-${i}`}
                             />
                           </td>
@@ -533,7 +655,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.reg_no || ""}
                               onChange={(e) => updateCell(i, "reg_no", e.target.value)}
                               placeholder="TUP001 - ..."
-                              className="h-8 min-w-[140px] font-mono text-xs"
+                              className={`h-8 min-w-[140px] font-mono text-xs ${
+                                dup.isRegDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.regReason || ""}
                               data-testid={`import-row-reg-${i}`}
                             />
                           </td>
@@ -569,7 +694,10 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                               value={r.vin || ""}
                               onChange={(e) => updateCell(i, "vin", e.target.value)}
                               placeholder="MBX0007..."
-                              className="h-8 min-w-[145px] font-mono text-xs uppercase"
+                              className={`h-8 min-w-[145px] font-mono text-xs uppercase ${
+                                dup.isVinDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.vinReason || ""}
                               data-testid={`import-row-vin-${i}`}
                             />
                           </td>
@@ -622,34 +750,35 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                         <>
                           <td>
                             <Input
+                              value={r.vehicle_id || ""}
+                              onChange={(e) => updateCell(i, "vehicle_id", e.target.value)}
+                              placeholder="VEHICLE ID"
+                              className="h-8 min-w-[110px] font-mono text-xs uppercase"
+                              data-testid={`import-row-vid-${i}`}
+                            />
+                          </td>
+                          <td>
+                            <Input
                               value={r.reg_no || ""}
                               onChange={(e) => updateCell(i, "reg_no", e.target.value)}
-                              placeholder="141 - KA51AJ2624"
-                              className="h-8 min-w-[150px] font-mono text-xs"
+                              placeholder="VEHICLE NUMBER"
+                              className={`h-8 min-w-[140px] font-mono text-xs uppercase ${
+                                dup.isRegDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.regReason || ""}
                               data-testid={`import-row-reg-${i}`}
                             />
                           </td>
                           <td>
-                            <Select value={statusVal} onValueChange={(v) => updateStatusCell(i, v)}>
-                              <SelectTrigger className="h-8 w-[112px] text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="available">available</SelectItem>
-                                <SelectItem value="rented">rented</SelectItem>
-                                <SelectItem value="Active">Active</SelectItem>
-                                <SelectItem value="Maintenance">Maintenance</SelectItem>
-                                <SelectItem value="Inactive">Inactive</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td>
                             <Input
-                              value={r.name || ""}
-                              onChange={(e) => updateCell(i, "name", e.target.value)}
-                              placeholder="Not Assigned"
-                              className="h-8 min-w-[130px] text-xs"
-                              data-testid={`import-row-name-${i}`}
+                              value={r.vin || ""}
+                              onChange={(e) => updateCell(i, "vin", e.target.value)}
+                              placeholder="VIN NUMBER"
+                              className={`h-8 min-w-[155px] font-mono text-xs uppercase ${
+                                dup.isVinDup ? "border-red-500 bg-red-100/70 text-red-900 ring-1 ring-red-500 font-bold" : ""
+                              }`}
+                              title={dup.vinReason || ""}
+                              data-testid={`import-row-vin-${i}`}
                             />
                           </td>
                           <td>
@@ -669,24 +798,6 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                                 )}
                               </SelectContent>
                             </Select>
-                          </td>
-                          <td>
-                            <Input
-                              value={r.vin || ""}
-                              onChange={(e) => updateCell(i, "vin", e.target.value)}
-                              placeholder="MBX0007..."
-                              className="h-8 min-w-[165px] font-mono text-xs uppercase"
-                              data-testid={`import-row-vin-${i}`}
-                            />
-                          </td>
-                          <td>
-                            <Input
-                              value={r.rental_ends || ""}
-                              onChange={(e) => updateCell(i, "rental_ends", e.target.value)}
-                              placeholder="(blank)"
-                              className="h-8 w-[120px] font-mono text-xs"
-                              data-testid={`import-row-rental-ends-${i}`}
-                            />
                           </td>
                         </>
                       )}

@@ -588,8 +588,9 @@ class TestPdfExcelCsvImport:
         avail_xlsx = requests.get(f"{API}/vehicles", headers=hdrs, params={"status": "available", "format": "xlsx"})
         assert avail_xlsx.status_code == 200 and avail_xlsx.content[:2] == b"PK"
         wb_avail = load_workbook(io.BytesIO(avail_xlsx.content))
+        assert list(wb_avail.active.iter_rows(values_only=True))[3] == ("VEHICLE ID", "VEHICLE NUMBER", "VIN NUMBER", "CITY")
         avail_rows = [r for r in list(wb_avail.active.iter_rows(values_only=True))[4:] if r and r[0]]
-        assert avail_rows and all(r[1] == "available" for r in avail_rows)
+        assert avail_rows and any("141" in str(r[0]) or "KA51" in str(r[1]) for r in avail_rows)
 
         # Track Ravi E2E driver + vehicle for cleanup
         ravi_drv = requests.get(f"{API}/drivers", headers=hdrs, params={"q": ravi_e2e}).json()[0]
@@ -807,7 +808,7 @@ class TestPdfExcelCsvImport:
         tpl_v = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "vehicles"})
         assert tpl_v.status_code == 200, tpl_v.text
         wb_v = load_workbook(io.BytesIO(tpl_v.content))
-        assert [c.value for c in wb_v.active[1]] == ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"]
+        assert [c.value for c in wb_v.active[1]] == ["VEHICLE ID", "VEHICLE NUMBER", "VIN NUMBER", "CITY"]
 
         code = f"R39D-DRVONLY{SUFFIX}"
         veh_tag = f"TESTDRVONLY{SUFFIX}"

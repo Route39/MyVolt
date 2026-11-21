@@ -13,14 +13,7 @@ import { api, downloadBlob, errMsg } from "@/lib/api";
 import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
 import { PageHeader, Pager, StatCard, usePaged } from "@/components/kit";
 
-const EMPTY = { reg_no: "", city: "Bangalore", vehicle_type: "", vin: "", rental_ends: "", status: "Active", details: "" };
-const STATUS_CLS = {
-  rented: "st-verified",
-  available: "st-partial",
-  Active: "st-verified",
-  Maintenance: "st-pending",
-  Inactive: "st-none",
-};
+const EMPTY = { vehicle_id: "", reg_no: "", vin: "", city: "Bangalore", status: "Active" };
 
 const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
   const [f, setF] = useState(EMPTY);
@@ -33,13 +26,11 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
       setF(
         vehicle
           ? {
-              reg_no: vehicle.reg_no,
-              city: vehicle.city,
-              vehicle_type: vehicle.vehicle_type || "",
+              vehicle_id: vehicle.vehicle_id || "",
+              reg_no: vehicle.reg_no || "",
               vin: vehicle.vin || "",
-              rental_ends: vehicle.rental_ends || "",
-              status: vehicle.status,
-              details: vehicle.details || "",
+              city: vehicle.city || "Bangalore",
+              status: vehicle.status || "Active",
             }
           : EMPTY
       );
@@ -48,26 +39,56 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
   const save = async (e) => {
     e.preventDefault();
+    setBusy(true);
+    const body = {
+      reg_no: f.reg_no.trim(),
+      vin: f.vin.trim().toUpperCase(),
+      city: f.city,
+      status: f.status || "Active",
+    };
+    if (f.vehicle_id?.trim()) {
+      body.vehicle_id = f.vehicle_id.trim();
+    }
     try {
-      const { data } = vehicle ? await api.put(`/vehicles/${vehicle.vehicle_id}`, f) : await api.post("/vehicles", f);
+      const { data } = vehicle ? await api.put(`/vehicles/${vehicle.vehicle_id}`, body) : await api.post("/vehicles", body);
       toast.success(vehicle ? "Vehicle updated" : `Vehicle ${data.vehicle_id} added`);
       onOpenChange(false);
       onSaved();
     } catch (e2) {
       toast.error(errMsg(e2));
+    } finally {
+      setBusy(false);
     }
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]" data-testid="vehicle-form-dialog">
         <DialogHeader>
-          <DialogTitle>{vehicle ? `Edit ${vehicle.vehicle_id}` : "Add vehicle"}</DialogTitle>
-          <DialogDescription>{vehicle ? "Vehicle ID is permanent and cannot be changed." : "Vehicle ID is generated from the city (e.g. BLR-005)."}</DialogDescription>
+          <DialogTitle>{vehicle ? `Edit Vehicle · ${vehicle.vehicle_id}` : "Add Vehicle"}</DialogTitle>
+          <DialogDescription>Vehicle details are recorded directly in the fleet master.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={save} className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1"><Label className="text-xs">Vehicle / Reg. number</Label><Input required value={f.reg_no} onChange={set("reg_no")} className="font-mono" data-testid="vehicle-form-reg" /></div>
+        <form onSubmit={save} className="grid gap-3.5 sm:grid-cols-2">
+          {vehicle ? (
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VEHICLE ID</Label>
+              <Input disabled value={vehicle.vehicle_id} className="font-mono bg-muted" data-testid="vehicle-form-id-locked" />
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VEHICLE ID</Label>
+              <Input value={f.vehicle_id} onChange={set("vehicle_id")} placeholder="Auto or e.g. 141, BLR-005" className="font-mono" data-testid="vehicle-form-id" />
+            </div>
+          )}
           <div className="space-y-1">
-            <Label className="text-xs">City</Label>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VEHICLE NUMBER</Label>
+            <Input required value={f.reg_no} onChange={set("reg_no")} placeholder="e.g. KA51AJ2624" className="font-mono" data-testid="vehicle-form-reg" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">VIN NUMBER</Label>
+            <Input value={f.vin} onChange={set("vin")} placeholder="e.g. MBX0007EF2B266083" className="font-mono uppercase" data-testid="vehicle-form-vin" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">CITY</Label>
             <Select value={normalizeCity(f.city)} onValueChange={set("city")}>
               <SelectTrigger data-testid="vehicle-form-city"><SelectValue placeholder="Select city" /></SelectTrigger>
               <SelectContent>
@@ -80,17 +101,7 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1"><Label className="text-xs">VIN / Chassis No.</Label><Input value={f.vin} onChange={set("vin")} placeholder="e.g. MBX0007EF2B266083" className="font-mono uppercase" data-testid="vehicle-form-vin" /></div>
-          <div className="space-y-1"><Label className="text-xs">Rental Ends</Label><Input type="date" value={f.rental_ends} onChange={set("rental_ends")} data-testid="vehicle-form-rental-ends" /></div>
-          <div className="space-y-1"><Label className="text-xs">Vehicle type</Label><Input value={f.vehicle_type} onChange={set("vehicle_type")} placeholder="e.g. Sedan, EV" data-testid="vehicle-form-type" /></div>
-          <div className="space-y-1"><Label className="text-xs">Status</Label>
-            <Select value={f.status} onValueChange={set("status")}>
-              <SelectTrigger data-testid="vehicle-form-status"><SelectValue /></SelectTrigger>
-              <SelectContent>{["Active", "Maintenance", "Inactive"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1 sm:col-span-2"><Label className="text-xs">Details (optional)</Label><Input value={f.details} onChange={set("details")} placeholder="Make, model, colour…" data-testid="vehicle-form-details" /></div>
-          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between sm:col-span-2 pt-1">
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between sm:col-span-2 pt-2">
             {vehicle ? (
               <Button
                 type="button"
@@ -311,7 +322,7 @@ export default function VehiclesPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Vehicle, VIN, Driver, ID, city…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="vehicles-search" />
+          <Input placeholder="Search Vehicle ID, Number, VIN, City…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="vehicles-search" />
           <Select value={city} onValueChange={setCity}>
             <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="vehicles-filter-city">
               <SelectValue />
@@ -323,83 +334,41 @@ export default function VehiclesPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="vehicles-filter-status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {["all", "available", "rented", "Active", "Maintenance", "Inactive"].map((s) => (
-                <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={assignment} onValueChange={setAssignment}>
-            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="vehicles-filter-assignment">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All vehicles</SelectItem>
-              <SelectItem value="assigned">Assigned</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table w-full min-w-[900px] whitespace-nowrap" data-testid="vehicles-table">
+          <table className="data-table w-full min-w-[700px] whitespace-nowrap" data-testid="vehicles-table">
             <thead>
               <tr>
-                <th>Vehicle</th>
-                <th>Status</th>
-                <th>Driver</th>
-                <th>City</th>
-                <th>VIN</th>
-                <th>Rental Ends</th>
+                <th>VEHICLE ID</th>
+                <th>VEHICLE NUMBER</th>
+                <th>VIN NUMBER</th>
+                <th>CITY</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {paged.slice.map((v) => {
-                const displayStatus = v.status === "Active" ? (v.current_driver ? "rented" : v.rental_status || "available") : v.status;
-                return (
-                  <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`} onClick={() => setEdit(v)} className="cursor-pointer">
-                    <td className="font-mono text-xs">
-                      <span className="font-semibold text-[#17212B]">{v.reg_no}</span>{" "}
-                      {/* <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] text-[#64748B]">{v.vehicle_id}</span> */}
-                    </td>
-                    <td>
-                      <span className={`${STATUS_CLS[displayStatus] || "st-none"} st-pill rounded-full px-2 py-0.5 text-[11px] font-medium`}>
-                        {displayStatus}
-                      </span>
-                    </td>
-                    <td>
-                      {v.current_driver ? (
-                        <span>
-                          {v.current_driver.name} <span className="font-mono text-[11px] text-muted-foreground">{v.current_driver.driver_code}</span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Not Assigned</span>
-                      )}
-                    </td>
-                    <td>{v.city}</td>
-                    <td className="font-mono text-xs">{v.vin || "—"}</td>
-                    <td className="font-mono text-xs">{v.rental_ends || "(blank)"}</td>
-                    <td className="whitespace-nowrap text-right">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={(e) => { e.stopPropagation(); setAssign(v); }} data-testid={`vehicle-assign-${v.vehicle_id}`}>
-                        <ArrowLeftRight className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(v); }} data-testid={`vehicle-edit-${v.vehicle_id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete vehicle" onClick={(e) => { e.stopPropagation(); setToDelete(v); }} data-testid={`vehicle-delete-${v.vehicle_id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {paged.slice.map((v) => (
+                <tr key={v.vehicle_id} data-testid={`vehicle-row-${v.vehicle_id}`} onClick={() => setEdit(v)} className="cursor-pointer">
+                  <td className="font-mono text-xs font-semibold">{v.vehicle_id}</td>
+                  <td className="font-mono text-xs font-semibold text-[#17212B]">{v.reg_no}</td>
+                  <td className="font-mono text-xs">{v.vin || "—"}</td>
+                  <td>{v.city}</td>
+                  <td className="whitespace-nowrap text-right">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Assign driver" onClick={(e) => { e.stopPropagation(); setAssign(v); }} data-testid={`vehicle-assign-${v.vehicle_id}`}>
+                      <ArrowLeftRight className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(v); }} data-testid={`vehicle-edit-${v.vehicle_id}`}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete vehicle" onClick={(e) => { e.stopPropagation(); setToDelete(v); }} data-testid={`vehicle-delete-${v.vehicle_id}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
               {!paged.slice.length && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-muted-foreground">No vehicles found</td>
+                  <td colSpan={5} className="py-8 text-center text-muted-foreground">No vehicles found</td>
                 </tr>
               )}
             </tbody>

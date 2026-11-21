@@ -216,6 +216,7 @@ class DriverCreate(DriverIn):
 
 
 class VehicleIn(BaseModel):
+    vehicle_id: Optional[str] = None
     reg_no: str = Field(min_length=4)
     city: str = Field(min_length=2)
     vehicle_type: str = ""
@@ -264,6 +265,7 @@ class RejectIn(BaseModel):
 
 
 class ImportRowIn(BaseModel):
+    vehicle_id: Optional[str] = None
     name: str = ""
     mobile: str = ""
     city: str = "Bengaluru"
@@ -624,7 +626,7 @@ async def next_code(kind, prefix):
                 return code
 
 
-async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details="", vin="", rental_ends="", rental_status=""):
+async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details="", vin="", rental_ends="", rental_status="", vehicle_id=None):
     rk = reg_key(reg_no)
     if not rk:
         raise HTTPException(400, "Registration number is required")
@@ -636,8 +638,14 @@ async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details
         if existing_vin:
             raise HTTPException(409, f"A vehicle with VIN {vin_clean} already exists ({existing_vin.get('reg_no')})")
     stored_reg = reg_no.strip() if " - " in reg_no else reg_no.strip().upper()
+    vid = (vehicle_id or "").strip()
+    if vid:
+        if await db.vehicles.find_one({"vehicle_id": vid}):
+            raise HTTPException(409, f"A vehicle with ID {vid} already exists")
+    else:
+        vid = await next_code("vehicle", city_prefix(city))
     doc = {
-        "vehicle_id": await next_code("vehicle", city_prefix(city)),
+        "vehicle_id": vid,
         "reg_no": stored_reg,
         "reg_key": rk,
         "city": city.strip(),
@@ -740,19 +748,17 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
     if format == "xlsx":
         rows = [
             [
+                v.get("vehicle_id"),
                 v.get("reg_no"),
-                v.get("rental_status") if v.get("status") == "Active" else v.get("status"),
-                (v.get("current_driver") or {}).get("name") or "Not Assigned",
-                v.get("city"),
                 v.get("vin") or "",
-                v.get("rental_ends") or "(blank)",
+                v.get("city"),
             ]
             for v in vehicles
         ]
         return await xlsx_response(
             "vehicles",
             "Vehicles Master",
-            ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"],
+            ["VEHICLE ID", "VEHICLE NUMBER", "VIN NUMBER", "CITY"],
             rows,
             user,
         )
@@ -770,6 +776,7 @@ async def create_vehicle(body: VehicleIn, user=Depends(require("admin"))):
         body.vin,
         body.rental_ends,
         body.rental_status,
+        body.vehicle_id,
     )
     await audit(user, "Vehicle created", "vehicle", doc["vehicle_id"], None, f"{doc['reg_no']} · {doc['city']}")
     return doc
@@ -832,10 +839,9 @@ async def import_template(mode: str = "drivers_and_vehicles", user=Depends(requi
         fname = "myvolt_drivers_template.xlsx"
     elif mode == "vehicles":
         ws.title = "Vehicles Template"
-        cols = ["Vehicle", "Status", "Driver", "City", "VIN", "Rental Ends"]
+        cols = ["VEHICLE ID", "VEHICLE NUMBER", "VIN NUMBER", "CITY"]
         ws.append(cols)
-        ws.append(["141 - KA51AJ2624", "available", "Not Assigned", "Bangalore", "MBX0007EF2B266083", "(blank)"])
-        ws.append(["150 - KA05AM1234", "rented", "Ravi", "Bangalore", "MBX0007EF2B260000", "2026-11-25"])
+        ws.append(["141", "KA51AJ2624", "MBX0007EF2B266083", "Bangalore"])
         fname = "myvolt_vehicles_template.xlsx"
     else:
         ws.title = "Import Template"
@@ -1018,7 +1024,9 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 veh_status = importer.clean_status(row.status, kind="vehicle")
                 veh_rent = max(float(row.daily_rent or 0), 0.0)
                 if not veh_doc:
-                    vid = alloc_code("vehicle", city_prefix(city))
+                    vid = (row.vehicle_id or "").strip()
+                    if not vid or vid in veh_by_id:
+                        vid = alloc_code("vehicle", city_prefix(city))
                     stored_reg = reg_clean.strip() if " - " in reg_clean else reg_clean.strip().upper()
                     veh_doc = {
                         "vehicle_id": vid,
