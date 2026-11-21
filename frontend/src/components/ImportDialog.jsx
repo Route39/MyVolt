@@ -277,24 +277,30 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
       const m = cleanMob(r.mobile);
 
       const dupRegInFile = rk.length > 2 && fileRegs[rk] > 1;
-      const dupRegInDb = rk.length > 2 && dbRegs.has(rk);
-      const isRegDup = dupRegInFile || dupRegInDb;
-      const regReason = dupRegInFile ? "Duplicate vehicle number in file" : dupRegInDb ? "Vehicle number already exists in database" : null;
+      const matchRegInDb = rk.length > 2 && dbRegs.has(rk);
+      const isRegDup = dupRegInFile || (!updateExisting && matchRegInDb);
+      const regReason = dupRegInFile ? "Duplicate vehicle number in file" : matchRegInDb ? (updateExisting ? "Vehicle number in database (will update)" : "Vehicle number already exists in database") : null;
 
       const dupVinInFile = isRealVin(vin) && fileVins[vin] > 1;
-      const dupVinInDb = isRealVin(vin) && dbVins.has(vin);
-      const isVinDup = dupVinInFile || dupVinInDb;
-      const vinReason = dupVinInFile ? "Duplicate VIN in file" : dupVinInDb ? "VIN already exists in database" : null;
+      const matchVinInDb = isRealVin(vin) && dbVins.has(vin);
+      const isVinDup = dupVinInFile || (!updateExisting && matchVinInDb);
+      const vinReason = dupVinInFile ? "Duplicate VIN in file" : matchVinInDb ? (updateExisting ? "VIN in database (will update)" : "VIN already exists in database") : null;
 
       const dupCodeInFile = c && fileCodes[c] > 1;
-      const dupCodeInDb = c && dbCodes.has(c);
-      const isCodeDup = dupCodeInFile || dupCodeInDb;
-      const codeReason = dupCodeInFile ? "Duplicate driver ID in file" : dupCodeInDb ? "Driver ID already exists in database" : null;
+      const matchCodeInDb = c && dbCodes.has(c);
+      const isCodeDup = dupCodeInFile || (!updateExisting && matchCodeInDb);
+      const codeReason = dupCodeInFile ? "Duplicate driver ID in file" : matchCodeInDb ? (updateExisting ? "Driver ID in database (will update)" : "Driver ID already exists in database") : null;
 
       const dupMobInFile = m.length === 10 && fileMobs[m] > 1;
-      const dupMobInDb = m.length === 10 && dbMobs.has(m);
-      const isMobDup = dupMobInFile || dupMobInDb;
-      const mobReason = dupMobInFile ? "Duplicate phone in file" : dupMobInDb ? "Phone already exists in database" : null;
+      const matchMobInDb = m.length === 10 && dbMobs.has(m);
+      const isMobDup = dupMobInFile || (!updateExisting && matchMobInDb);
+      const mobReason = dupMobInFile ? "Duplicate phone in file" : matchMobInDb ? (updateExisting ? "Phone in database (will update)" : "Phone already exists in database") : null;
+
+      const hasFileDup = dupRegInFile || dupVinInFile || dupCodeInFile || dupMobInFile;
+      const hasDbMatch = matchRegInDb || matchVinInDb || matchCodeInDb || matchMobInDb;
+      const isUpdate = hasDbMatch && updateExisting && !hasFileDup;
+      const isAdd = !hasDbMatch && !hasFileDup;
+      const hasConflict = hasFileDup || (hasDbMatch && !updateExisting);
 
       return {
         isRegDup,
@@ -305,12 +311,27 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         codeReason,
         isMobDup,
         mobReason,
-        hasDuplicate: isRegDup || isVinDup || isCodeDup || isMobDup,
+        hasFileDup,
+        hasDbMatch,
+        isUpdate,
+        isAdd,
+        hasConflict,
+        hasDuplicate: hasConflict,
       };
     });
-  }, [rows, existingVehicles, existingDrivers]);
+  }, [rows, existingVehicles, existingDrivers, updateExisting]);
 
-  const totalDuplicates = useMemo(() => dupMap.filter((d) => d.hasDuplicate).length, [dupMap]);
+  const importStats = useMemo(() => {
+    let toAdd = 0;
+    let toUpdate = 0;
+    let fileDups = 0;
+    dupMap.forEach((d) => {
+      if (d.hasFileDup) fileDups++;
+      else if (d.isUpdate) toUpdate++;
+      else toAdd++;
+    });
+    return { toAdd, toUpdate, fileDups, totalDuplicates: dupMap.filter((d) => d.hasDuplicate).length };
+  }, [dupMap]);
   const totalPages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_SIZE));
   const safePage = Math.min(previewPage, totalPages);
   const startIdx = (safePage - 1) * PREVIEW_PAGE_SIZE;
@@ -472,12 +493,32 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           </div>
         )}
 
-        {totalDuplicates > 0 && (
-          <div className="flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-900" data-testid="import-duplicates-alert">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />
-            <span>
-              <strong>{totalDuplicates} duplicate record(s) detected</strong> (matches in file or already in database). Duplicate cells are highlighted in red below.
-            </span>
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-xs font-medium text-slate-800" data-testid="import-status-summary">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex items-center gap-1.5 font-semibold text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+                {importStats.toAdd} to add (new)
+              </span>
+              {importStats.toUpdate > 0 && (
+                <span className="flex items-center gap-1.5 font-semibold text-blue-700">
+                  <ArrowUpDown className="h-4 w-4" />
+                  {importStats.toUpdate} to update (existing)
+                </span>
+              )}
+            </div>
+            {importStats.fileDups > 0 && (
+              <span className="flex items-center gap-1.5 font-semibold text-red-600" data-testid="import-duplicates-alert">
+                <AlertTriangle className="h-4 w-4" />
+                {importStats.fileDups} duplicate row(s) in file
+              </span>
+            )}
+            {importStats.totalDuplicates > 0 && importStats.fileDups === 0 && !updateExisting && (
+              <span className="flex items-center gap-1.5 text-amber-700" data-testid="import-duplicates-alert">
+                <AlertTriangle className="h-4 w-4" />
+                {importStats.totalDuplicates} duplicate record(s) detected
+              </span>
+            )}
           </div>
         )}
 
@@ -529,13 +570,31 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
                   const dup = dupMap[i] || {};
                   const statusVal = r.rental_status && r.status === "Active" ? r.rental_status : r.status || "Active";
                   return (
-                    <tr key={i} data-testid={`import-row-${i}`} className={dup.hasDuplicate ? "bg-red-50/50 hover:bg-red-50" : ""}>
+                    <tr
+                      key={i}
+                      data-testid={`import-row-${i}`}
+                      className={
+                        dup.hasFileDup
+                          ? "bg-red-50/60 hover:bg-red-50"
+                          : dup.isUpdate
+                            ? "bg-blue-50/30 hover:bg-blue-50/50"
+                            : "hover:bg-slate-50/50"
+                      }
+                    >
                       <td className="text-xs text-[#64748B]">
                         <div className="flex items-center gap-1">
                           <span>{i + 1}</span>
-                          {dup.hasDuplicate && (
-                            <span className="rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold text-white uppercase" title="Duplicate detected">
+                          {dup.hasFileDup ? (
+                            <span className="rounded bg-red-600 px-1 py-0.5 text-[9px] font-bold text-white uppercase" title="Duplicate row in file">
                               DUP
+                            </span>
+                          ) : dup.isUpdate ? (
+                            <span className="rounded bg-blue-600 px-1 py-0.5 text-[9px] font-bold text-white uppercase" title="Matches database record (will update)">
+                              UPDATE
+                            </span>
+                          ) : (
+                            <span className="rounded bg-emerald-600 px-1 py-0.5 text-[9px] font-bold text-white uppercase" title="New record (will add)">
+                              ADD
                             </span>
                           )}
                         </div>
@@ -932,7 +991,9 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
               {committing && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               {committing && progress
                 ? `Importing ${progress.done} / ${progress.total}...`
-                : `Import ${rows.length ? `${rows.length} Record(s)` : "Records"}`}
+                : rows.length
+                  ? `Import ${rows.length} Record(s) (${importStats.toAdd} to add, ${importStats.toUpdate} to update)`
+                  : "Import Records"}
             </Button>
           </div>
         </div>

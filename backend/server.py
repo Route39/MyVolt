@@ -469,6 +469,13 @@ def summarize(drv, txns, start: date, end: date):
             "outstanding": max(expected - verified, 0.0)}
 
 
+def natural_sort_key(s: Any) -> list:
+    if s is None:
+        return []
+    s = str(s).strip()
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
+
+
 async def get_driver_or_404(did):
     d = await db.drivers.find_one({"id": did}, P)
     if not d:
@@ -477,13 +484,28 @@ async def get_driver_or_404(did):
 
 
 @api.get("/drivers")
-async def list_drivers(q: str = "", city: str = "", status: str = "", format: str = "json", user=Depends(current_user)):
+async def list_drivers(q: str = "", city: str = "", status: str = "", sort: str = "driver_code", order: str = "asc", format: str = "json", user=Depends(current_user)):
     f = driver_filter(q)
     if city and city != "all":
         f["city"] = city_query_filter(city)
     if status and status != "all":
         f["status"] = status
-    drivers = await db.drivers.find(f, P).sort("name", 1).to_list(20000)
+    drivers = await db.drivers.find(f, P).to_list(20000)
+    rev = (order.lower() == "desc")
+    if sort == "name":
+        drivers.sort(key=lambda d: (d.get("name") or "").lower(), reverse=rev)
+    elif sort == "created_at":
+        drivers.sort(key=lambda d: d.get("created_at") or "", reverse=rev)
+    elif sort == "joining_date":
+        drivers.sort(key=lambda d: d.get("joining_date") or "", reverse=rev)
+    elif sort in ("rent", "daily_rent"):
+        drivers.sort(key=lambda d: float(d.get("daily_rent") or 0), reverse=rev)
+    elif sort == "mobile":
+        drivers.sort(key=lambda d: d.get("mobile") or "", reverse=rev)
+    elif sort == "city":
+        drivers.sort(key=lambda d: (d.get("city") or "").lower(), reverse=rev)
+    else:
+        drivers.sort(key=lambda d: natural_sort_key(d.get("driver_code") or d.get("id") or ""), reverse=rev)
     if format == "xlsx":
         headers = ["DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT"]
         rows = [
@@ -726,7 +748,7 @@ async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("s
 
 
 @api.get("/vehicles")
-async def list_vehicles(q: str = "", city: str = "", status: str = "", assignment: str = "", format: str = "json", user=Depends(current_user)):
+async def list_vehicles(q: str = "", city: str = "", status: str = "", assignment: str = "", sort: str = "vehicle_id", order: str = "asc", format: str = "json", user=Depends(current_user)):
     f = {}
     if q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
@@ -751,7 +773,7 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
         f["city"] = city_query_filter(city)
     if status and status not in ("all", "available", "rented"):
         f["status"] = status
-    vehicles = await db.vehicles.find(f, P).sort("vehicle_id", 1).to_list(20000)
+    vehicles = await db.vehicles.find(f, P).to_list(20000)
     drivers = await db.drivers.find(
         {"current_vehicle_id": {"$ne": None}},
         {"_id": 0, "id": 1, "name": 1, "driver_code": 1, "mobile": 1, "daily_rent": 1, "current_vehicle_id": 1},
@@ -769,6 +791,17 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
         vehicles = [v for v in vehicles if v.get("current_driver")]
     elif assignment == "unassigned":
         vehicles = [v for v in vehicles if not v.get("current_driver")]
+    rev = (order.lower() == "desc")
+    if sort == "reg_no":
+        vehicles.sort(key=lambda v: (v.get("reg_no") or "").lower(), reverse=rev)
+    elif sort == "vin":
+        vehicles.sort(key=lambda v: (v.get("vin") or "").lower(), reverse=rev)
+    elif sort == "city":
+        vehicles.sort(key=lambda v: (v.get("city") or "").lower(), reverse=rev)
+    elif sort == "created_at":
+        vehicles.sort(key=lambda v: v.get("created_at") or "", reverse=rev)
+    else:
+        vehicles.sort(key=lambda v: natural_sort_key(v.get("vehicle_id") or ""), reverse=rev)
     if format == "xlsx":
         rows = [
             [

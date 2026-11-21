@@ -11,7 +11,7 @@ import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
 import { inr, todayIso, FLEET_CITIES } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PageHeader, Pager, StatCard, usePaged } from "@/components/kit";
+import { PageHeader, Pager, StatCard, SortTh, usePaged } from "@/components/kit";
 
 export default function DriversPage() {
   const nav = useNavigate();
@@ -25,6 +25,7 @@ export default function DriversPage() {
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState("all");
+  const [sort, setSort] = useState({ key: "driver_code", dir: "asc" });
 
   const cities = useMemo(() => {
     const set = new Set([...FLEET_CITIES, ...rows.map((d) => d.city).filter(Boolean)]);
@@ -34,7 +35,32 @@ export default function DriversPage() {
     () => rows.filter((d) => (status === "all" || d.status === status) && (city === "all" || d.city === city)),
     [rows, status, city]
   );
-  const paged = usePaged(filtered, 25, [q, status, city]);
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    const naturalCompare = (aStr, bStr) => {
+      return (aStr || "").localeCompare(bStr || "", undefined, { numeric: true, sensitivity: "base" });
+    };
+    list.sort((a, b) => {
+      let res = 0;
+      if (sort.key === "driver_code") {
+        res = naturalCompare(a.driver_code, b.driver_code);
+      } else if (sort.key === "name") {
+        res = (a.name || "").localeCompare(b.name || "");
+      } else if (sort.key === "mobile") {
+        res = (a.mobile || "").localeCompare(b.mobile || "");
+      } else if (sort.key === "city") {
+        res = (a.city || "").localeCompare(b.city || "");
+      } else if (sort.key === "joining_date") {
+        res = (a.joining_date || "").localeCompare(b.joining_date || "");
+      } else if (sort.key === "daily_rent") {
+        res = (Number(a.daily_rent) || 0) - (Number(b.daily_rent) || 0);
+      }
+      return sort.dir === "desc" ? -res : res;
+    });
+    return list;
+  }, [filtered, sort.key, sort.dir]);
+
+  const paged = usePaged(sorted, 25, [q, status, city, sort.key, sort.dir]);
 
   const cityStats = useMemo(() => {
     const map = {};
@@ -154,12 +180,12 @@ export default function DriversPage() {
           <table className="data-table w-full min-w-[900px] whitespace-nowrap" data-testid="drivers-table">
             <thead>
               <tr>
-                <th>DRIVER ID</th>
-                <th>DRIVER NAME</th>
-                <th>PHONE NUMBER</th>
-                <th>CITY</th>
-                <th>JOINING DATE</th>
-                <th>RENT</th>
+                <SortTh label="DRIVER ID" k="driver_code" sort={sort} onSort={setSort} />
+                <SortTh label="DRIVER NAME" k="name" sort={sort} onSort={setSort} />
+                <SortTh label="PHONE NUMBER" k="mobile" sort={sort} onSort={setSort} />
+                <SortTh label="CITY" k="city" sort={sort} onSort={setSort} />
+                <SortTh label="JOINING DATE" k="joining_date" sort={sort} onSort={setSort} />
+                <SortTh label="RENT" k="daily_rent" sort={sort} onSort={setSort} />
                 <th></th>
               </tr>
             </thead>

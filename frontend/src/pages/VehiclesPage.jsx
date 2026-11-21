@@ -11,7 +11,7 @@ import { DriverSearch } from "@/components/DriverSearch";
 import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
 import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
-import { PageHeader, Pager, StatCard, usePaged } from "@/components/kit";
+import { PageHeader, Pager, StatCard, SortTh, usePaged } from "@/components/kit";
 
 const EMPTY = { vehicle_id: "", reg_no: "", vin: "", city: "Bangalore", status: "Active" };
 
@@ -200,6 +200,7 @@ export default function VehiclesPage() {
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState("all");
   const [assignment, setAssignment] = useState("all");
+  const [sort, setSort] = useState({ key: "vehicle_id", dir: "asc" });
 
   const load = useCallback(() => api.get("/vehicles", { params: { q } }).then((r) => setRows(r.data)), [q]);
   useEffect(() => {
@@ -222,7 +223,28 @@ export default function VehiclesPage() {
       }),
     [rows, status, city, assignment]
   );
-  const paged = usePaged(filtered, 25, [q, status, city, assignment]);
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    const naturalCompare = (aStr, bStr) => {
+      return (aStr || "").localeCompare(bStr || "", undefined, { numeric: true, sensitivity: "base" });
+    };
+    list.sort((a, b) => {
+      let res = 0;
+      if (sort.key === "vehicle_id") {
+        res = naturalCompare(a.vehicle_id, b.vehicle_id);
+      } else if (sort.key === "reg_no") {
+        res = (a.reg_no || "").localeCompare(b.reg_no || "");
+      } else if (sort.key === "vin") {
+        res = (a.vin || "").localeCompare(b.vin || "");
+      } else if (sort.key === "city") {
+        res = (a.city || "").localeCompare(b.city || "");
+      }
+      return sort.dir === "desc" ? -res : res;
+    });
+    return list;
+  }, [filtered, sort.key, sort.dir]);
+
+  const paged = usePaged(sorted, 25, [q, status, city, assignment, sort.key, sort.dir]);
 
   const cityStats = useMemo(() => {
     const map = {};
@@ -339,10 +361,10 @@ export default function VehiclesPage() {
           <table className="data-table w-full min-w-[700px] whitespace-nowrap" data-testid="vehicles-table">
             <thead>
               <tr>
-                <th>VEHICLE ID</th>
-                <th>VEHICLE NUMBER</th>
-                <th>VIN NUMBER</th>
-                <th>CITY</th>
+                <SortTh label="VEHICLE ID" k="vehicle_id" sort={sort} onSort={setSort} />
+                <SortTh label="VEHICLE NUMBER" k="reg_no" sort={sort} onSort={setSort} />
+                <SortTh label="VIN NUMBER" k="vin" sort={sort} onSort={setSort} />
+                <SortTh label="CITY" k="city" sort={sort} onSort={setSort} />
                 <th></th>
               </tr>
             </thead>
