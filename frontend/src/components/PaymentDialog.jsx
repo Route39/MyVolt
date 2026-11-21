@@ -67,7 +67,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
     if (!open) return;
     setForm({
       amount: String(txn?.amount ?? driver?.daily_rent ?? ""), utr: txn?.utr || "", method: txn?.method || "UPI",
-      remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : driver?.current_vehicle_id || null,
+      remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : null,
     });
     setFile(null);
     setScanning(false);

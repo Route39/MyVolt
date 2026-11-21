@@ -30,7 +30,6 @@ export const VehicleSelect = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [showAllInCity, setShowAllInCity] = useState(false);
 
   // Determine driver city and prefix
   const driverCityPrefix = getCityPrefix(driver?.city) || getCityPrefix(driver?.driver_code);
@@ -51,19 +50,19 @@ export const VehicleSelect = ({
 
   // When searching, match vehicle_id, reg_no, or vin
   const cleanQ = query.trim().toLowerCase().replace(/[\s-]/g, "");
-  const filtered = cityVehicles.filter((v) => {
-    if (!cleanQ) return showAllInCity;
-    const idClean = (v.vehicle_id || "").toLowerCase().replace(/[\s-]/g, "");
-    const regClean = (v.reg_no || "").toLowerCase().replace(/[\s-]/g, "");
-    const vinClean = (v.vin || "").toLowerCase().replace(/[\s-]/g, "");
-    return idClean.includes(cleanQ) || regClean.includes(cleanQ) || vinClean.includes(cleanQ);
-  });
+  const filtered = cleanQ
+    ? cityVehicles.filter((v) => {
+        const idClean = (v.vehicle_id || "").toLowerCase().replace(/[\s-]/g, "");
+        const regClean = (v.reg_no || "").toLowerCase().replace(/[\s-]/g, "");
+        const vinClean = (v.vin || "").toLowerCase().replace(/[\s-]/g, "");
+        return idClean.includes(cleanQ) || regClean.includes(cleanQ) || vinClean.includes(cleanQ);
+      })
+    : [];
 
   const handleSelect = (vid) => {
     onChange(vid);
     setOpen(false);
     setQuery("");
-    setShowAllInCity(false);
   };
 
   const handleClear = (e) => {
@@ -76,10 +75,7 @@ export const VehicleSelect = ({
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (!o) {
-          setQuery("");
-          setShowAllInCity(false);
-        }
+        if (!o) setQuery("");
       }}
     >
       <PopoverTrigger asChild>
@@ -125,10 +121,7 @@ export const VehicleSelect = ({
             className="flex h-10 w-full rounded-md bg-transparent py-2 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
             placeholder={`Type vehicle ID or reg. no. ${cityDisplayName ? `(${cityDisplayName})` : ""}…`}
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (showAllInCity) setShowAllInCity(false);
-            }}
+            onChange={(e) => setQuery(e.target.value)}
             autoFocus
           />
           {query && (
@@ -154,37 +147,9 @@ export const VehicleSelect = ({
             </button>
           )}
 
-          {!query.trim() && !showAllInCity ? (
-            <div className="p-3 text-center text-xs text-muted-foreground space-y-2">
-              {driver?.current_vehicle_id ? (
-                <div>
-                  <div className="text-[11px] mb-1.5 text-left font-medium text-foreground">Current assigned vehicle:</div>
-                  <button
-                    type="button"
-                    data-testid={`${testId}-option-${driver.current_vehicle_id}`}
-                    onClick={() => handleSelect(driver.current_vehicle_id)}
-                    className="flex w-full items-center justify-between rounded border bg-muted/30 px-2.5 py-2 text-left font-mono text-xs hover:border-[var(--r39-green)] hover:bg-[var(--r39-green-bg)]"
-                  >
-                    <div className="truncate">
-                      <span className="font-semibold text-foreground">{driver.current_vehicle_id}</span>
-                      {driver.vehicle_no && <span className="text-muted-foreground"> · {driver.vehicle_no}</span>}
-                    </div>
-                    {value === driver.current_vehicle_id && <Check className="h-3.5 w-3.5 text-[var(--r39-green)]" />}
-                  </button>
-                </div>
-              ) : null}
-              <p className="pt-1 text-[11px]">
-                Type vehicle ID or reg. no. to search {cityDisplayName ? `in ${cityDisplayName}` : ""} (e.g. {driverCityPrefix ? `${driverCityPrefix}-001` : "001"} or reg no)
-              </p>
-              {cityVehicles.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllInCity(true)}
-                  className="inline-block text-[11px] text-[var(--r39-green-text)] underline hover:opacity-80"
-                >
-                  Show all {cityVehicles.length} {cityDisplayName || "city"} vehicles
-                </button>
-              )}
+          {!cleanQ ? (
+            <div className="p-4 text-center text-xs text-muted-foreground">
+              Type vehicle ID or registration number to search…
             </div>
           ) : filtered.length === 0 ? (
             <div className="p-4 text-center text-xs text-muted-foreground">
