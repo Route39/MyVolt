@@ -15,20 +15,20 @@ const TITLES = { new: "ADD RENT PAYMENT", split: "ADD SPLIT PAYMENT", resubmit: 
 const METHODS = ["UPI", "Bank Transfer", "Cash"];
 const TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-const Screenshot = ({ file, existingId, uploading, onPick, onClear }) => {
+const Screenshot = ({ file, existingId, uploading, scanning, onPick, onClear }) => {
   const ref = useRef();
   const pick = (f) => f && onPick(f);
   return (
     <div>
-      <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" className="hidden" data-testid="payment-screenshot-input" onChange={(e) => pick(e.target.files[0])} />
+      <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" className="hidden" data-testid="payment-screenshot-input" onChange={(e) => { pick(e.target.files[0]); e.target.value = ""; }} />
       {file || existingId ? (
         <div className="relative flex items-center gap-3 rounded-md border p-2">
           {file ? <img src={file.preview} alt="Preview" className="h-20 w-16 rounded object-cover" data-testid="payment-screenshot-preview" /> : <AuthImage fileId={existingId} className="h-20 w-16 rounded" />}
           <div className="min-w-0 flex-1 text-xs">
             <div className="truncate font-medium">{file ? file.name : "Current screenshot"}</div>
-            <div className="text-muted-foreground">{uploading ? "Uploading…" : file ? "Uploaded" : "Kept unless replaced"}</div>
+            <div className="text-muted-foreground">{uploading ? "Uploading…" : scanning ? "Scanning payment screenshot…" : file ? "Uploaded" : "Kept unless replaced"}</div>
           </div>
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+          {uploading || scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : (
             <div className="flex gap-1">
               <Button type="button" variant="outline" size="sm" onClick={() => ref.current.click()} data-testid="payment-screenshot-replace">Replace</Button>
               {file && <Button type="button" variant="ghost" size="icon" onClick={onClear} data-testid="payment-screenshot-clear"><X className="h-4 w-4" /></Button>}
@@ -58,6 +58,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
   const vehicles = useVehicles(open);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const editing = mode === "resubmit" || mode === "correct";
@@ -69,6 +70,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
       remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : driver?.current_vehicle_id || null,
     });
     setFile(null);
+    setScanning(false);
     setError("");
   }, [open, txn, driver]);
 
@@ -79,22 +81,46 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
     const preview = URL.createObjectURL(f);
     setFile({ name: f.name, preview, id: null });
     setUploading(true);
+    let fileId = null;
     try {
       const fd = new FormData();
       fd.append("file", f);
       const { data } = await api.post("/upload", fd);
-      setFile({ name: f.name, preview, id: data.file_id });
+      fileId = data.file_id;
+      setFile({ name: f.name, preview, id: fileId });
     } catch (e) {
       setFile(null);
       toast.error(errMsg(e));
+      return;
     } finally {
       setUploading(false);
+    }
+    if (form.method === "Cash") return;      // cash: screenshot is optional, nothing to scan
+    // scan the screenshot: must be a real payment receipt; the UTR / transaction id is filled in (still editable)
+    setScanning(true);
+    try {
+      const { data: scan } = await api.post("/upload/scan", { file_id: fileId });
+      if (!scan.scanned) {
+        toast.info("Could not read the screenshot automatically. Please enter the UTR manually.");
+      } else if (!scan.is_payment) {
+        setFile(null);
+        toast.error("This does not look like a payment screenshot. Please upload a clear screenshot of the payment.");
+      } else if (scan.utr) {
+        setForm((f) => ({ ...f, utr: scan.utr }));
+        toast.success(`Payment screenshot verified. UTR ${scan.utr} filled in.`);
+      } else {
+        toast.info("Payment screenshot detected, but the transaction ID could not be read. Please enter it manually.");
+      }
+    } catch (e2) {
+      toast.info("Could not scan the screenshot. Please enter the UTR manually.");
+    } finally {
+      setScanning(false);
     }
   };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (submitting || uploading) return;
+    if (submitting || uploading || scanning) return;
     setError("");
     const body = { amount: Number(form.amount), utr: form.utr.trim(), method: form.method, remarks: form.remarks, file_id: file?.id || txn?.file_id || null, vehicle_id: form.vehicle_id };
     setSubmitting(true);
@@ -155,7 +181,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
             <div className="grid grid-cols-3 gap-2">
               {METHODS.map((m) => (
                 <button type="button" key={m} onClick={() => set("method")(m)} data-testid={`payment-method-${m.replace(" ", "-").toLowerCase()}`}
-                  className={`h-10 rounded-md border text-sm font-medium transition-colors ${form.method === m ? "border-[var(--r39-green)] bg-[var(--r39-green-bg)] text-[var(--r39-green-text)]" : "hover:bg-muted"}`}>
+                  className={`h-10 rounded-md border px-1 text-xs font-medium leading-tight transition-colors w375:text-sm ${form.method === m ? "border-[var(--r39-green)] bg-[var(--r39-green-bg)] text-[var(--r39-green-text)]" : "hover:bg-muted"}`}>
                   {m}
                 </button>
               ))}
@@ -163,7 +189,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
           </div>
           <div className="space-y-1.5">
             <Label>Payment screenshot {cash && <span className="text-muted-foreground">(optional for cash)</span>}</Label>
-            <Screenshot file={file} existingId={editing ? txn?.file_id : null} uploading={uploading} onPick={onPick} onClear={() => setFile(null)} />
+            <Screenshot file={file} existingId={editing ? txn?.file_id : null} uploading={uploading} scanning={scanning} onPick={onPick} onClear={() => setFile(null)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="rem">Remarks <span className="text-muted-foreground">(optional)</span></Label>
@@ -179,7 +205,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
           {error && <div className="st-rejected st-pill rounded-md p-2.5 text-sm" data-testid="payment-dialog-error">{error}</div>}
           <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} data-testid="payment-cancel-button">CANCEL</Button>
-            <Button type="submit" disabled={submitting || uploading} className="h-10" data-testid="payment-submit-button">
+            <Button type="submit" disabled={submitting || uploading || scanning} className="h-10" data-testid="payment-submit-button">
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {mode === "correct" ? "SAVE CORRECTION" : mode === "resubmit" ? "RESUBMIT FOR VERIFICATION" : "SUBMIT FOR VERIFICATION"}
             </Button>
