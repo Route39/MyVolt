@@ -516,6 +516,7 @@ async def get_driver(did: str, user=Depends(current_user)):
 
 
 DRIVER_CODE_RX = re.compile(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$")
+STD_DRIVER_CODE_RX = re.compile(r"^[A-Z]{2,5}-D-\d{3,}$")
 
 
 @api.post("/drivers")
@@ -529,8 +530,8 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
         await check_assignable(body.current_vehicle_id, None)
     code = (body.driver_code or "").strip().upper()
     if code:
-        if not DRIVER_CODE_RX.match(code):
-            raise HTTPException(400, "Driver ID override must look like BLR-D-001 or R39D-TUP001")
+        if not STD_DRIVER_CODE_RX.match(code):
+            raise HTTPException(400, "Driver ID must look like BLR-D-001")
         if await db.drivers.find_one({"driver_code": code}):
             raise HTTPException(409, f"Driver ID {code} is already used")
     else:
@@ -1055,7 +1056,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                     veh_doc = veh_by_rk.get(reg_key(reg_clean))
 
                 if not drv_doc:
-                    if code_in and DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
+                    if code_in and STD_DRIVER_CODE_RX.match(code_in) and code_in not in drv_by_code:
                         code = code_in
                     else:
                         code = alloc_code("driver", city_prefix(city))
