@@ -11,19 +11,30 @@ import { api, errMsg } from "@/lib/api";
 import { VehicleSelect, useVehicles } from "@/components/Vehicles";
 import { fmtDate, fmtDateTime, inr, FLEET_CITIES, normalizeCity } from "@/lib/format";
 
-const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", status: "Active", rent_free_dates: [], driver_code: "", current_vehicle_id: null };
+const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", daily_rent: "", driver_code: "", status: "Active" };
 
-const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs">{label}</Label>{children}</div>;
+const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</Label>{children}</div>;
 
 export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
   const [f, setF] = useState(EMPTY);
-  const [freeDate, setFreeDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const vehicles = useVehicles(open && !driver);
+
   useEffect(() => {
     if (open) {
-      setF(driver ? { ...EMPTY, ...driver, daily_rent: String(driver.daily_rent) } : EMPTY);
+      setF(
+        driver
+          ? {
+              name: driver.name || "",
+              mobile: driver.mobile || "",
+              city: driver.city || "Bangalore",
+              joining_date: driver.joining_date || "",
+              daily_rent: driver.daily_rent !== undefined && driver.daily_rent !== null ? String(driver.daily_rent) : "",
+              driver_code: driver.driver_code || "",
+              status: driver.status || "Active",
+            }
+          : { ...EMPTY, joining_date: new Date().toISOString().slice(0, 10) }
+      );
       setConfirmDelete(false);
     }
   }, [open, driver]);
@@ -32,10 +43,20 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
-    const body = { ...f, daily_rent: Number(f.daily_rent), handover_date: f.handover_date || null, rent_start_date: f.rent_start_date || null };
+    const body = {
+      name: f.name.trim(),
+      mobile: f.mobile.trim(),
+      city: f.city,
+      joining_date: f.joining_date || null,
+      daily_rent: Number(f.daily_rent) || 0,
+      status: f.status || "Active",
+    };
     ["id", "summary", "adjustments", "created_at", "current_vehicle", "assignments", "vehicle_no", "package"].forEach((k) => delete body[k]);
-    if (driver) { delete body.driver_code; delete body.current_vehicle_id; }
-    else body.driver_code = f.driver_code.trim() || null;
+    if (driver) {
+      delete body.driver_code;
+    } else {
+      body.driver_code = f.driver_code.trim() || null;
+    }
     try {
       if (driver) await api.put(`/drivers/${driver.id}`, body);
       else await api.post("/drivers", body);
@@ -51,26 +72,46 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[600px]" data-testid="driver-form-dialog">
-        <DialogHeader><DialogTitle>{driver ? `Edit ${driver.name}` : "Add driver"}</DialogTitle><DialogDescription>Changes are recorded in the audit log.</DialogDescription></DialogHeader>
+      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[560px]" data-testid="driver-form-dialog">
+        <DialogHeader>
+          <DialogTitle>{driver ? `Edit Driver · ${driver.name}` : "Add Driver"}</DialogTitle>
+          <DialogDescription>Driver information is saved directly to the database.</DialogDescription>
+        </DialogHeader>
         <form onSubmit={save} className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <F label="Driver name"><Input required value={f.name} onChange={set("name")} data-testid="driver-form-name" /></F>
-            <F label="Mobile (10 digits)"><Input required pattern="\d{10}" value={f.mobile} onChange={set("mobile")} data-testid="driver-form-mobile" /></F>
+          <div className="grid gap-3.5 sm:grid-cols-2">
             {driver ? (
-              <F label="Driver ID (permanent)"><Input disabled value={driver.driver_code} className="font-mono" data-testid="driver-form-code-locked" /></F>
+              <F label="DRIVER ID">
+                <Input disabled value={driver.driver_code} className="font-mono bg-muted" data-testid="driver-form-code-locked" />
+              </F>
             ) : (
-              <F label="Driver ID override (optional)"><Input value={f.driver_code} onChange={set("driver_code")} placeholder="Auto, e.g. BLR-D-005 or R39D-TUP001" className="font-mono" data-testid="driver-form-code" /></F>
-            )}
-            {!driver && (
-              <F label="Assign vehicle (optional)">
-                <VehicleSelect vehicles={vehicles.filter((v) => !v.current_driver && v.status !== "Inactive")} value={f.current_vehicle_id}
-                  onChange={(v) => setF({ ...f, current_vehicle_id: v })} testId="driver-form-vehicle" allowNone />
+              <F label="DRIVER ID">
+                <Input
+                  value={f.driver_code}
+                  onChange={set("driver_code")}
+                  placeholder="e.g. R39D-TUP001 (auto if empty)"
+                  className="font-mono"
+                  data-testid="driver-form-code"
+                />
               </F>
             )}
-            <F label="City">
+            <F label="DRIVER NAME">
+              <Input required value={f.name} onChange={set("name")} placeholder="Driver name" data-testid="driver-form-name" />
+            </F>
+            <F label="PHONE NUMBER">
+              <Input
+                required
+                pattern="\d{10}"
+                value={f.mobile}
+                onChange={set("mobile")}
+                placeholder="10-digit mobile number"
+                data-testid="driver-form-mobile"
+              />
+            </F>
+            <F label="CITY">
               <Select value={normalizeCity(f.city)} onValueChange={set("city")}>
-                <SelectTrigger data-testid="driver-form-city"><SelectValue placeholder="Select city" /></SelectTrigger>
+                <SelectTrigger data-testid="driver-form-city">
+                  <SelectValue placeholder="Select city" />
+                </SelectTrigger>
                 <SelectContent>
                   {FLEET_CITIES.map((c) => (
                     <SelectItem key={c} value={c}>{c}</SelectItem>
@@ -81,32 +122,22 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                 </SelectContent>
               </Select>
             </F>
-            <F label="Joining date"><Input type="date" required value={f.joining_date} onChange={set("joining_date")} data-testid="driver-form-joining" /></F>
-            <F label="Vehicle handover date"><Input type="date" value={f.handover_date || ""} onChange={set("handover_date")} data-testid="driver-form-handover" /></F>
-            <F label="Rent calculation start date"><Input type="date" value={f.rent_start_date || ""} onChange={set("rent_start_date")} data-testid="driver-form-rent-start" /></F>
-            <F label="Daily rent (₹)"><Input type="number" min="1" required value={f.daily_rent} onChange={set("daily_rent")} data-testid="driver-form-rent" /></F>
-            <F label="Status">
-              <Select value={f.status} onValueChange={set("status")}>
-                <SelectTrigger data-testid="driver-form-status"><SelectValue /></SelectTrigger>
-                <SelectContent>{["Active", "Suspended", "Inactive"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
+            <F label="JOINING DATE">
+              <Input type="date" required value={f.joining_date} onChange={set("joining_date")} data-testid="driver-form-joining" />
+            </F>
+            <F label="RENT">
+              <Input
+                type="number"
+                min="1"
+                required
+                value={f.daily_rent}
+                onChange={set("daily_rent")}
+                placeholder="Daily rent (₹)"
+                data-testid="driver-form-rent"
+              />
             </F>
           </div>
-          <p className="text-[11px] text-muted-foreground">If left blank, rent starts from the vehicle handover date (or joining date when no handover date is set).</p>
-          <F label="Rent-free days">
-            <div className="flex gap-2">
-              <Input type="date" value={freeDate} onChange={(e) => setFreeDate(e.target.value)} data-testid="driver-form-free-date" />
-              <Button type="button" variant="outline" data-testid="driver-form-add-free-date" onClick={() => { if (freeDate && !f.rent_free_dates.includes(freeDate)) setF({ ...f, rent_free_dates: [...f.rent_free_dates, freeDate].sort() }); setFreeDate(""); }}>Add</Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {f.rent_free_dates.map((d) => (
-                <span key={d} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">{fmtDate(d)}
-                  <button type="button" onClick={() => setF({ ...f, rent_free_dates: f.rent_free_dates.filter((x) => x !== d) })}><X className="h-3 w-3" /></button>
-                </span>
-              ))}
-            </div>
-          </F>
-          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between pt-1">
+          <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between pt-2">
             {driver ? (
               <Button
                 type="button"

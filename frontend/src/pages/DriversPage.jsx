@@ -137,7 +137,7 @@ export default function DriversPage() {
 
       <div className="r-card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <Input placeholder="Search Driver, ID, Phone, Vehicle…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="drivers-search" />
+          <Input placeholder="Search Driver ID, Name, Phone, City…" value={q} onChange={(e) => setQ(e.target.value)} className="h-9 w-full sm:max-w-sm" data-testid="drivers-search" />
           <Select value={city} onValueChange={setCity}>
             <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="drivers-filter-city">
               <SelectValue />
@@ -149,81 +149,51 @@ export default function DriversPage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[150px]" data-testid="drivers-filter-status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {["all", "Active", "Suspended", "Inactive"].map((s) => (
-                <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table w-full min-w-[1000px] whitespace-nowrap" data-testid="drivers-table">
+          <table className="data-table w-full min-w-[900px] whitespace-nowrap" data-testid="drivers-table">
             <thead>
               <tr>
-                <th>Driver</th>
-                <th>ID</th>
-                <th>Phone</th>
-                <th>Vehicle</th>
-                <th>City</th>
-                <th>Joining Date</th>
-                <th>Daily Rent</th>
-                <th>Status</th>
+                <th>DRIVER ID</th>
+                <th>DRIVER NAME</th>
+                <th>PHONE NUMBER</th>
+                <th>CITY</th>
+                <th>JOINING DATE</th>
+                <th>RENT</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {paged.slice.map((d) => {
-                const showVehIdBadge = false; // was: d.current_vehicle_id && !(d.vehicle_no || "").includes(d.current_vehicle_id);
-                return (
-                  <tr key={d.id} data-testid={`driver-row-${d.id}`} onClick={() => setEdit(d)} className="cursor-pointer">
-                    <td className="font-medium">{d.name}</td>
-                    <td className="font-mono text-xs font-semibold">{d.driver_code}</td>
-                    <td className="font-mono text-xs">{d.mobile}</td>
-                    <td className="font-mono text-xs">
-                      {d.vehicle_no ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span>{d.vehicle_no}</span>
-                          {showVehIdBadge && (
-                            <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-semibold text-[#475569]">
-                              {d.current_vehicle_id}
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">{d.current_vehicle_id || "—"}</span>
-                      )}
-                    </td>
-                    <td>{d.city}</td>
-                    <td className="font-mono text-xs">{d.joining_date || "—"}</td>
-                    <td className="font-semibold">{inr(d.daily_rent)}</td>
-                    <td>{d.status}</td>
-                    <td className="whitespace-nowrap text-right">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Open calendar" onClick={(e) => { e.stopPropagation(); nav(`/calendar?driver=${d.id}`); }} data-testid={`driver-calendar-${d.id}`}>
-                        <CalendarDays className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Change vehicle" onClick={(e) => { e.stopPropagation(); setVeh(d); }} data-testid={`driver-vehicle-${d.id}`}>
-                        <ArrowLeftRight className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Adjustments" onClick={(e) => { e.stopPropagation(); setAdj(d); }} data-testid={`driver-adjust-${d.id}`}>
-                        <SlidersHorizontal className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(d); }} data-testid={`driver-edit-${d.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete driver" onClick={(e) => { e.stopPropagation(); setToDelete(d); }} data-testid={`driver-delete-${d.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {paged.slice.map((d) => (
+                <tr key={d.id} data-testid={`driver-row-${d.id}`} onClick={() => setEdit(d)} className="cursor-pointer">
+                  <td className="font-mono text-xs font-semibold">{d.driver_code}</td>
+                  <td className="font-medium">{d.name}</td>
+                  <td className="font-mono text-xs">{d.mobile}</td>
+                  <td>{d.city}</td>
+                  <td className="font-mono text-xs">{d.joining_date || "—"}</td>
+                  <td className="font-semibold">{inr(d.daily_rent)}</td>
+                  <td className="whitespace-nowrap text-right">
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Open calendar" onClick={(e) => { e.stopPropagation(); nav(`/calendar?driver=${d.id}`); }} data-testid={`driver-calendar-${d.id}`}>
+                      <CalendarDays className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Change vehicle" onClick={(e) => { e.stopPropagation(); setVeh(d); }} data-testid={`driver-vehicle-${d.id}`}>
+                      <ArrowLeftRight className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Adjustments" onClick={(e) => { e.stopPropagation(); setAdj(d); }} data-testid={`driver-adjust-${d.id}`}>
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(d); }} data-testid={`driver-edit-${d.id}`}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete driver" onClick={(e) => { e.stopPropagation(); setToDelete(d); }} data-testid={`driver-delete-${d.id}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
               {!paged.slice.length && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-muted-foreground">No drivers found</td>
+                  <td colSpan={7} className="py-8 text-center text-muted-foreground">No drivers found</td>
                 </tr>
               )}
             </tbody>

@@ -221,7 +221,8 @@ class TestPdfExcelCsvImport:
         wb_drv = load_workbook(io.BytesIO(drv_exp.content))
         drv_rows = list(wb_drv.active.iter_rows(values_only=True))
         assert len(drv_rows) >= 5
-        assert all(r[4] in ("Bengaluru", "Bangalore") for r in drv_rows[4:] if r[0])
+        assert drv_rows[3] == ("DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT")
+        assert all(r[3] in ("Bengaluru", "Bangalore") for r in drv_rows[4:] if r[0])
 
         veh_exp = requests.get(f"{API}/vehicles", headers=hdrs, params={"format": "xlsx", "city": "Chennai"})
         assert veh_exp.status_code == 200, veh_exp.text
@@ -801,7 +802,7 @@ class TestPdfExcelCsvImport:
         tpl_d = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "drivers"})
         assert tpl_d.status_code == 200, tpl_d.text
         wb_d = load_workbook(io.BytesIO(tpl_d.content))
-        assert [c.value for c in wb_d.active[1]] == ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"]
+        assert [c.value for c in wb_d.active[1]] == ["DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT"]
 
         tpl_v = requests.get(f"{API}/import/template", headers=hdrs, params={"mode": "vehicles"})
         assert tpl_v.status_code == 200, tpl_v.text

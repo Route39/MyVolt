@@ -479,23 +479,22 @@ async def list_drivers(q: str = "", city: str = "", status: str = "", format: st
         f["status"] = status
     drivers = await db.drivers.find(f, P).sort("name", 1).to_list(20000)
     if format == "xlsx":
+        headers = ["DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT"]
         rows = [
             [
-                d.get("name"),
                 d.get("driver_code"),
+                d.get("name"),
                 d.get("mobile"),
-                d.get("vehicle_no") or "",
                 d.get("city"),
                 d.get("joining_date"),
                 d.get("daily_rent"),
-                d.get("status"),
             ]
             for d in drivers
         ]
         return await xlsx_response(
             "drivers",
             "Drivers Master",
-            ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"],
+            headers,
             rows,
             user,
         )
@@ -827,9 +826,9 @@ async def import_template(mode: str = "drivers_and_vehicles", user=Depends(requi
     ws = wb.active
     if mode == "drivers":
         ws.title = "Drivers Template"
-        cols = ["Driver", "ID", "Phone", "Vehicle", "City", "Joining Date", "Daily Rent (₹)", "Status"]
+        cols = ["DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT"]
         ws.append(cols)
-        ws.append(["varshini", "R39D-TUP001", "7904800475", "TUP001 - hjjhjjhj", "Tiruppur", "2026-10-03", 800, "Active"])
+        ws.append(["R39D-TUP001", "varshini", "7904800475", "Tiruppur", "2026-10-03", 800])
         fname = "myvolt_drivers_template.xlsx"
     elif mode == "vehicles":
         ws.title = "Vehicles Template"
