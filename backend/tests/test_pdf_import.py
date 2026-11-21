@@ -822,7 +822,7 @@ class TestPdfExcelCsvImport:
                         {
                             "name": f"varshini_{SUFFIX}",
                             "driver_code": code,
-                            "mobile": "7904800475",
+                            "mobile": f"79048{int(SUFFIX, 16) % 100000:05d}",
                             "reg_no": f"TUP001 - {veh_tag}",
                             "city": "Tiruppur",
                             "joining_date": "2026-10-03",

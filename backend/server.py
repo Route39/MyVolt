@@ -40,11 +40,15 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("mobile", ASCENDING)], name="mobile", unique=True,
                    partialFilterExpression={"mobile": {"$type": "string"}}),
     ],
-    "drivers": [IndexModel([("id", ASCENDING)], name="id", unique=True),
-                IndexModel([("driver_code", ASCENDING)], name="driver_code", unique=True,
-                           partialFilterExpression={"driver_code": {"$type": "string"}}),
-                IndexModel([("current_vehicle_id", ASCENDING)], name="current_vehicle", unique=True,
-                           partialFilterExpression={"current_vehicle_id": {"$type": "string"}})],
+    "drivers": [
+        IndexModel([("id", ASCENDING)], name="id", unique=True),
+        IndexModel([("driver_code", ASCENDING)], name="driver_code", unique=True,
+                   partialFilterExpression={"driver_code": {"$type": "string"}}),
+        IndexModel([("mobile", ASCENDING)], name="mobile", unique=True,
+                   partialFilterExpression={"mobile": {"$type": "string", "$gt": ""}}),
+        IndexModel([("current_vehicle_id", ASCENDING)], name="current_vehicle", unique=True,
+                   partialFilterExpression={"current_vehicle_id": {"$type": "string"}}),
+    ],
     "transactions": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
         IndexModel([("driver_id", ASCENDING), ("payment_date", ASCENDING)], name="driver_date"),
@@ -55,8 +59,12 @@ INDEXES: dict[str, list[IndexModel]] = {
     "audit_logs": [IndexModel([("ts", DESCENDING)], name="ts"), IndexModel([("entity_id", ASCENDING)], name="entity")],
     "notifications": [IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)], name="user_created")],
     "files": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
-    "vehicles": [IndexModel([("vehicle_id", ASCENDING)], name="vehicle_id", unique=True),
-                 IndexModel([("reg_key", ASCENDING)], name="reg_key", unique=True)],
+    "vehicles": [
+        IndexModel([("vehicle_id", ASCENDING)], name="vehicle_id", unique=True),
+        IndexModel([("reg_key", ASCENDING)], name="reg_key", unique=True),
+        IndexModel([("vin", ASCENDING)], name="vin", unique=True,
+                   partialFilterExpression={"vin": {"$type": "string", "$gt": ""}}),
+    ],
     "vehicle_assignments": [IndexModel([("driver_id", ASCENDING), ("start_at", DESCENDING)], name="driver_start"),
                             IndexModel([("vehicle_id", ASCENDING)], name="vehicle")],
     "counters": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
@@ -520,6 +528,16 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
     data = body.model_dump(exclude={"driver_code", "current_vehicle_id"})
     data["handover_date"] = data["handover_date"] or data["joining_date"]
     data["rent_start_date"] = data["rent_start_date"] or data["handover_date"]
+    
+    # Strictly enforce 100% unique mobile number
+    mobile = importer.clean_mobile(data.get("mobile"))
+    if not mobile or len(mobile) != 10:
+        raise HTTPException(400, "Mobile number must be exactly 10 digits")
+    data["mobile"] = mobile
+    existing_mob = await db.drivers.find_one({"mobile": mobile})
+    if existing_mob:
+        raise HTTPException(409, f"A driver with mobile number {mobile} already exists ({existing_mob.get('name')})")
+
     if body.current_vehicle_id:
         await check_assignable(body.current_vehicle_id, None)
     code = (body.driver_code or "").strip().upper()
@@ -547,6 +565,17 @@ async def update_driver(did: str, body: DriverIn, user=Depends(require("admin"))
     new = body.model_dump()
     new["handover_date"] = new["handover_date"] or new["joining_date"]
     new["rent_start_date"] = new["rent_start_date"] or new["handover_date"]
+
+    # Strictly enforce 100% unique mobile number on update
+    if "mobile" in new:
+        mobile = importer.clean_mobile(new.get("mobile"))
+        if not mobile or len(mobile) != 10:
+            raise HTTPException(400, "Mobile number must be exactly 10 digits")
+        new["mobile"] = mobile
+        existing_mob = await db.drivers.find_one({"mobile": mobile, "id": {"$ne": did}})
+        if existing_mob:
+            raise HTTPException(409, f"Mobile number {mobile} is already used by driver {existing_mob.get('name')} ({existing_mob.get('driver_code')})")
+
     await db.drivers.update_one({"id": did}, {"$set": new})
     for k, v in new.items():
         if old.get(k) != v:
@@ -596,16 +625,24 @@ async def next_code(kind, prefix):
 
 
 async def insert_vehicle(reg_no, city, vehicle_type="", status="Active", details="", vin="", rental_ends="", rental_status=""):
-    if await db.vehicles.find_one({"reg_key": reg_key(reg_no)}):
+    rk = reg_key(reg_no)
+    if not rk:
+        raise HTTPException(400, "Registration number is required")
+    if await db.vehicles.find_one({"reg_key": rk}):
         raise HTTPException(409, f"A vehicle with registration {reg_no.upper()} already exists")
+    vin_clean = vin.strip().upper() if vin else ""
+    if vin_clean and vin_clean not in ("", "—", "(BLANK)"):
+        existing_vin = await db.vehicles.find_one({"vin": vin_clean})
+        if existing_vin:
+            raise HTTPException(409, f"A vehicle with VIN {vin_clean} already exists ({existing_vin.get('reg_no')})")
     stored_reg = reg_no.strip() if " - " in reg_no else reg_no.strip().upper()
     doc = {
         "vehicle_id": await next_code("vehicle", city_prefix(city)),
         "reg_no": stored_reg,
-        "reg_key": reg_key(stored_reg),
+        "reg_key": rk,
         "city": city.strip(),
         "vehicle_type": vehicle_type,
-        "vin": vin.strip().upper(),
+        "vin": vin_clean,
         "rental_ends": rental_ends.strip(),
         "rental_status": rental_status or "available",
         "status": status,
@@ -751,8 +788,12 @@ async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"
         "vin": body.vin.strip().upper(),
         "rental_ends": body.rental_ends.strip(),
     }
-    if new["reg_key"] != old["reg_key"] and await db.vehicles.find_one({"reg_key": new["reg_key"]}):
+    if new["reg_key"] != old["reg_key"] and await db.vehicles.find_one({"reg_key": new["reg_key"], "vehicle_id": {"$ne": vid}}):
         raise HTTPException(409, f"A vehicle with registration {new['reg_no']} already exists")
+    if new["vin"] and new["vin"] not in ("", "—", "(BLANK)"):
+        other_vin = await db.vehicles.find_one({"vin": new["vin"], "vehicle_id": {"$ne": vid}})
+        if other_vin:
+            raise HTTPException(409, f"A vehicle with VIN {new['vin']} already exists ({other_vin.get('reg_no')})")
     if new["status"] == "Inactive" and old["status"] != "Inactive":
         holder = await db.drivers.find_one({"current_vehicle_id": vid}, P)
         if holder:
@@ -843,10 +884,12 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
     all_vehicles = await db.vehicles.find({}, P).to_list(50000)
     veh_by_rk = {v["reg_key"]: v for v in all_vehicles if v.get("reg_key")}
     veh_by_id = {v["vehicle_id"]: v for v in all_vehicles if v.get("vehicle_id")}
+    veh_by_vin = {v["vin"].strip().upper(): v for v in all_vehicles if v.get("vin") and v.get("vin").strip().upper() not in ("", "—", "(BLANK)", "(blank)")}
 
     all_drivers = await db.drivers.find({}, P).to_list(50000)
     drv_by_id = {d["id"]: d for d in all_drivers if d.get("id")}
     drv_by_code = {d["driver_code"]: d for d in all_drivers if d.get("driver_code")}
+    drv_by_mob = {d["mobile"]: d for d in all_drivers if d.get("mobile") and len(d.get("mobile", "")) == 10}
     drv_by_name_mob = {}
     drv_by_name_exact = {}
     holder_by_vid = {}
@@ -970,6 +1013,8 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
             if body.mode in ("vehicles", "drivers_and_vehicles") and reg_clean:
                 rk = reg_key(reg_clean)
                 veh_doc = veh_by_rk.get(rk)
+                if not veh_doc and vin_clean:
+                    veh_doc = veh_by_vin.get(vin_clean)
                 veh_status = importer.clean_status(row.status, kind="vehicle")
                 veh_rent = max(float(row.daily_rent or 0), 0.0)
                 if not veh_doc:
@@ -992,6 +1037,8 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         veh_doc["daily_rent"] = veh_rent
                     veh_by_rk[rk] = veh_doc
                     veh_by_id[vid] = veh_doc
+                    if vin_clean:
+                        veh_by_vin[vin_clean] = veh_doc
                     new_vehicles_by_id[vid] = veh_doc
                     vehicles_created += 1
                 elif body.update_existing:
@@ -1035,15 +1082,13 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
             if raw_name and body.mode in ("drivers", "drivers_and_vehicles", "vehicles"):
                 name = raw_name
                 mobile_raw = importer.clean_mobile(row.mobile)
-                has_mobile = bool(mobile_raw)
+                has_mobile = bool(mobile_raw and len(mobile_raw) >= 10)
                 if len(mobile_raw) > 10:
                     mobile = mobile_raw[-10:]
                 elif len(mobile_raw) == 10:
                     mobile = mobile_raw
-                elif len(mobile_raw) > 0:
-                    mobile = mobile_raw.ljust(10, "0")
                 else:
-                    mobile = "9000000000"
+                    mobile = ""
 
                 joining = importer.clean_date(row.joining_date, today_str)
                 handover = importer.clean_date(row.handover_date, joining) if (row.handover_date or "").strip() else joining
@@ -1055,6 +1100,8 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                 drv_doc = None
                 if code_in and DRIVER_CODE_RX.match(code_in):
                     drv_doc = drv_by_code.get(code_in)
+                if not drv_doc and has_mobile:
+                    drv_doc = drv_by_mob.get(mobile)
                 if not drv_doc and has_mobile:
                     drv_doc = drv_by_name_mob.get((name.lower(), mobile))
                 if not drv_doc and not has_mobile:
@@ -1095,6 +1142,8 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                     }
                     drv_by_id[drv_id] = drv_doc
                     drv_by_code[code] = drv_doc
+                    if has_mobile:
+                        drv_by_mob[mobile] = drv_doc
                     drv_by_name_mob.setdefault((name.lower(), mobile), drv_doc)
                     drv_by_name_exact.setdefault(name.lower(), drv_doc)
                     new_drivers_by_id[drv_id] = drv_doc
@@ -1110,6 +1159,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
                         upd_d["rent_start_date"] = rent_start_dt
                     if has_mobile:
                         upd_d["mobile"] = mobile
+                        drv_by_mob[mobile] = drv_doc
                         drv_by_name_mob[(drv_doc.get("name", "").strip().lower(), mobile)] = drv_doc
                     if body.mode == "drivers" and not veh_doc and not drv_doc.get("current_vehicle_id"):
                         if reg_clean:
