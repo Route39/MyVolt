@@ -587,12 +587,13 @@ async def update_driver(did: str, body: DriverIn, user=Depends(require("admin"))
 @api.delete("/drivers/{did}")
 async def delete_driver(did: str, user=Depends(require("admin"))):
     drv = await get_driver_or_404(did)
-    if drv.get("current_vehicle_id"):
-        vid = drv["current_vehicle_id"]
-        ts = now_iso()
-        await db.vehicle_assignments.update_many({"driver_id": did, "end_at": None}, {"$set": {"end_at": ts}})
+    ts = now_iso()
+    vid = drv.get("current_vehicle_id")
+    if vid:
         await db.vehicles.update_one({"vehicle_id": vid}, {"$set": {"rental_status": "available"}})
+    await db.vehicle_assignments.update_many({"driver_id": did, "end_at": None}, {"$set": {"end_at": ts, "ended_by_name": user["name"]}})
     await db.drivers.delete_one({"id": did})
+    await db.notifications.delete_many({"driver_id": did})
     await audit(user, "Driver deleted", "driver", did, drv.get("name"), f"{drv.get('driver_code')} · {drv.get('name')}", did)
     return {"message": f"Driver {drv.get('name')} deleted", "id": did}
 
