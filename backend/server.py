@@ -1388,6 +1388,7 @@ _PAY_LABELS = [
     r"UPI\s*(?:Ref(?:erence)?(?:\s*(?:No|ID|Number))?|transaction\s*ID)",
     r"Ref(?:erence)?\s*(?:No|ID|Number)",
     r"(?:Transaction|Txn)\s*(?:ID|No|Number)",
+    r"Payment\s*(?:ID|No|Number)",
 ]
 _PAY_VAL = r"([A-Za-z0-9][A-Za-z0-9\-]{7,39})"
 # words that normally appear on a payment receipt; a real receipt matches several of them
@@ -1404,7 +1405,7 @@ def _read_payment_text(lines):
     txn = None
     for g in _PAY_LABELS:                                     # 1) value written after a known label
         for m in re.finditer(g + r"\.?\s*[:#\-]?\s*\n?\s*" + _PAY_VAL, text, re.I):
-            if re.search(r"\d{6,}", m.group(1)):
+            if re.search(r"\d{4,}", m.group(1)) or len(m.group(1)) >= 10:
                 txn = m.group(1)
                 break
         if txn:
