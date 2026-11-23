@@ -171,7 +171,48 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            <p className="mt-5 border-t border-[#E5E7EB] pt-4 text-center text-xs text-[#64748B]">
+            <div className="mt-5 border-t border-[#E5E7EB] pt-4">
+              <div className="mb-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-[#64748B]">
+                Quick Demo Login
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobile("9845000002");
+                    setPassword("route39@123");
+                  }}
+                  className="rounded-md border border-[#EF4444]/40 bg-[#EF4444]/5 px-2 py-2 text-xs font-semibold text-[#DC2626] transition-colors hover:bg-[#EF4444]/15"
+                  data-testid="quick-login-accounts"
+                >
+                  Accounts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobile("9845000001");
+                    setPassword("route39@123");
+                  }}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                  data-testid="quick-login-admin"
+                >
+                  Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobile("9845000004");
+                    setPassword("route39@123");
+                  }}
+                  className="rounded-md border border-gray-300 bg-white px-2 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                  data-testid="quick-login-staff"
+                >
+                  Staff
+                </button>
+              </div>
+            </div>
+
+            <p className="mt-4 text-center text-xs text-[#64748B]">
               Contact your Route39 administrator if you need account access or a password reset.
             </p>
           </div>
