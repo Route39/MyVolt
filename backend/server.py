@@ -1679,13 +1679,8 @@ async def approve_txn(tid: str, user=Depends(require("accounts", "admin"))):
         raise HTTPException(400, f"Only pending payments can be approved (current: {t['status']})")
     if user["id"] == t["submitted_by"]:
         raise HTTPException(403, "You cannot approve a payment you entered yourself")
-    if user["id"] == t.get("last_modified_by"):
-        # Segregation of duties: if user modified payment details (e.g. amount via /correct or /resubmit),
-        # another person must verify. But updating the UTR reference during verification does not block approval.
-        last_corr = t.get("corrections") or []
-        is_utr_only = bool(last_corr and all("new_utr" in c and "prev_amount" not in c for c in last_corr if c.get("by") == user["name"]))
-        if not is_utr_only and not t.get("utr_only_update"):
-            raise HTTPException(403, "You cannot approve a payment you entered or changed yourself")
+    if user["id"] == t.get("amount_modified_by"):
+        raise HTTPException(403, "You cannot approve a payment where you changed the payment amount")
     upd = {"status": "approved", "verified_by": user["id"], "verified_by_name": user["name"], "verified_at": now_iso()}
     if not await db.transactions.find_one_and_update({"id": tid, "status": "pending"}, {"$set": upd}):
         raise HTTPException(409, "This payment was already processed by someone else")
@@ -1700,11 +1695,6 @@ async def reject_txn(tid: str, body: RejectIn, user=Depends(require("accounts", 
         raise HTTPException(400, f"Only pending payments can be rejected (current: {t['status']})")
     if user["id"] == t["submitted_by"]:
         raise HTTPException(403, "You cannot reject a payment you entered yourself")
-    if user["id"] == t.get("last_modified_by"):
-        last_corr = t.get("corrections") or []
-        is_utr_only = bool(last_corr and all("new_utr" in c and "prev_amount" not in c for c in last_corr if c.get("by") == user["name"]))
-        if not is_utr_only and not t.get("utr_only_update"):
-            raise HTTPException(403, "You cannot reject a payment you entered or changed yourself")
     reason = body.remarks.strip()
     upd = {"status": "rejected", "verified_by": user["id"], "verified_by_name": user["name"],
            "verified_at": now_iso(), "rejection_reason": reason}
@@ -1758,6 +1748,8 @@ async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "a
     changes = await apply_edit(t, body, user, "")
     changes.update({"status": "pending", "verified_by": None, "verified_by_name": None, "verified_at": None,
                     "version": t.get("version", 1) + 1, "resubmitted_at": now_iso(), "last_modified_by": user["id"]})
+    if "amount" in changes:
+        changes["amount_modified_by"] = user["id"]
     await db.transactions.update_one({"id": tid}, {"$set": changes})
     await audit(user, "Transaction resubmitted", "transaction", tid, "rejected", "pending", t["driver_id"])
     return await get_txn(tid, user)
@@ -1815,6 +1807,8 @@ async def correct_txn(tid: str, body: TxnEdit, user=Depends(require("accounts", 
     prev_status = t["status"]
     changes.update({"status": "pending", "verified_by": None, "verified_by_name": None, "verified_at": None,
                     "version": t.get("version", 1) + 1, "last_modified_by": user["id"]})
+    if "amount" in changes:
+        changes["amount_modified_by"] = user["id"]
     await db.transactions.update_one({"id": tid}, {"$set": changes, "$push": {"corrections": {
         "reason": body.reason.strip(), "by": user["name"], "at": now_iso(), "prev_status": prev_status,
         "prev_amount": t["amount"], "prev_utr": t["utr"]}}})
