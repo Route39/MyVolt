@@ -47,3 +47,26 @@ def test_admin_correction_then_self_approve_blocked():
     # admin changed the amount, so admin should NOT be able to verify their own change
     r = requests.post(f"{API}/transactions/{t['id']}/approve", headers=h("u-admin"))
     assert r.status_code == 403, f"admin approved own correction: {r.status_code}"
+
+
+def test_accounts_utr_edit_then_approve_allowed():
+    d = _driver()
+    t = requests.post(f"{API}/transactions", headers=h("u-staff-1"), json={
+        "driver_id": d["id"], "payment_date": (TODAY - timedelta(days=1)).isoformat(), "amount": 500,
+        "utr": f"TESTSOD{uuid.uuid4().hex[:8]}", "method": "UPI", "file_id": upload(), "vehicle_id": "CHN-001"}).json()
+    assert t["status"] == "pending"
+
+    # Accounts edits the UTR (correcting a typo from the screenshot)
+    new_utr = f"FIXED{uuid.uuid4().hex[:8].upper()}"
+    edit_res = requests.put(f"{API}/transactions/{t['id']}/utr", headers=h("u-acc-1"), json={
+        "utr": new_utr, "reason": "Corrected from payment screenshot"
+    })
+    assert edit_res.status_code == 200
+    assert edit_res.json()["utr"] == new_utr
+
+    # Accounts approves the transaction - MUST be allowed (not blocked by self-approval check)
+    appr_res = requests.post(f"{API}/transactions/{t['id']}/approve", headers=h("u-acc-1"))
+    assert appr_res.status_code == 200, f"accounts blocked from approving after UTR edit: {appr_res.text}"
+    assert appr_res.json()["status"] == "approved"
+    assert appr_res.json()["verified_by"] == "u-acc-1"
+

@@ -1677,8 +1677,15 @@ async def approve_txn(tid: str, user=Depends(require("accounts", "admin"))):
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be approved (current: {t['status']})")
-    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
-        raise HTTPException(403, "You cannot approve a payment you entered or changed yourself")
+    if user["id"] == t["submitted_by"]:
+        raise HTTPException(403, "You cannot approve a payment you entered yourself")
+    if user["id"] == t.get("last_modified_by"):
+        # Segregation of duties: if user modified payment details (e.g. amount via /correct or /resubmit),
+        # another person must verify. But updating the UTR reference during verification does not block approval.
+        last_corr = t.get("corrections") or []
+        is_utr_only = bool(last_corr and all("new_utr" in c and "prev_amount" not in c for c in last_corr if c.get("by") == user["name"]))
+        if not is_utr_only and not t.get("utr_only_update"):
+            raise HTTPException(403, "You cannot approve a payment you entered or changed yourself")
     upd = {"status": "approved", "verified_by": user["id"], "verified_by_name": user["name"], "verified_at": now_iso()}
     if not await db.transactions.find_one_and_update({"id": tid, "status": "pending"}, {"$set": upd}):
         raise HTTPException(409, "This payment was already processed by someone else")
@@ -1691,8 +1698,13 @@ async def reject_txn(tid: str, body: RejectIn, user=Depends(require("accounts", 
     t = await get_txn_or_404(tid)
     if t["status"] != "pending":
         raise HTTPException(400, f"Only pending payments can be rejected (current: {t['status']})")
-    if user["id"] in (t["submitted_by"], t.get("last_modified_by")):
-        raise HTTPException(403, "You cannot reject a payment you entered or changed yourself")
+    if user["id"] == t["submitted_by"]:
+        raise HTTPException(403, "You cannot reject a payment you entered yourself")
+    if user["id"] == t.get("last_modified_by"):
+        last_corr = t.get("corrections") or []
+        is_utr_only = bool(last_corr and all("new_utr" in c and "prev_amount" not in c for c in last_corr if c.get("by") == user["name"]))
+        if not is_utr_only and not t.get("utr_only_update"):
+            raise HTTPException(403, "You cannot reject a payment you entered or changed yourself")
     reason = body.remarks.strip()
     upd = {"status": "rejected", "verified_by": user["id"], "verified_by_name": user["name"],
            "verified_at": now_iso(), "rejection_reason": reason}
@@ -1763,21 +1775,29 @@ async def update_txn_utr(tid: str, body: UtrUpdateIn, user=Depends(require("acco
             raise HTTPException(409, f"UTR {new_utr} has already been used in transaction {dup['id']} ({dup.get('driver_name')})")
         old_utr = t.get("utr")
         reason_str = (body.reason or "").strip() or "UTR updated by Accounts"
-        await db.transactions.update_one(
-            {"id": tid},
-            {
-                "$set": {"utr": new_utr, "last_modified_by": user["id"]},
-                "$push": {
-                    "corrections": {
-                        "reason": reason_str,
-                        "by": user["name"],
-                        "at": now_iso(),
-                        "prev_utr": old_utr,
-                        "new_utr": new_utr
-                    }
+        update_fields = {
+            "utr": new_utr,
+            "utr_updated_by": user["id"],
+            "utr_updated_by_name": user["name"],
+            "utr_updated_at": now_iso(),
+            "utr_only_update": True,
+        }
+        update_op = {
+            "$set": update_fields,
+            "$push": {
+                "corrections": {
+                    "reason": reason_str,
+                    "by": user["name"],
+                    "at": now_iso(),
+                    "prev_utr": old_utr,
+                    "new_utr": new_utr
                 }
             }
-        )
+        }
+        if t.get("last_modified_by") == user["id"] and not any("prev_amount" in c for c in (t.get("corrections") or [])):
+            update_op["$unset"] = {"last_modified_by": ""}
+
+        await db.transactions.update_one({"id": tid}, update_op)
         await audit(user, "UTR updated", "transaction", tid, old_utr, new_utr, t["driver_id"])
     return await get_txn(tid, user)
 
