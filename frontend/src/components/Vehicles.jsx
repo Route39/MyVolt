@@ -11,10 +11,33 @@ import { fmtDateTime, getCityPrefix, getCityDisplayName } from "@/lib/format";
 
 export const NOT_RECORDED = "Vehicle ID not recorded";
 
+let _vehiclesCache = null;
+let _vehiclesPromise = null;
+
+export const invalidateVehiclesCache = () => {
+  _vehiclesCache = null;
+  _vehiclesPromise = null;
+};
+
 export const useVehicles = (open = true) => {
-  const [vehicles, setVehicles] = useState([]);
+  const [vehicles, setVehicles] = useState(_vehiclesCache || []);
   useEffect(() => {
-    if (open) api.get("/vehicles").then((r) => setVehicles(r.data));
+    if (!open) return;
+    if (_vehiclesCache) {
+      setVehicles(_vehiclesCache);
+      return;
+    }
+    if (!_vehiclesPromise) {
+      _vehiclesPromise = api.get("/vehicles").then((r) => {
+        _vehiclesCache = r.data;
+        _vehiclesPromise = null;
+        return r.data;
+      }).catch((e) => {
+        _vehiclesPromise = null;
+        throw e;
+      });
+    }
+    _vehiclesPromise.then((data) => setVehicles(data));
   }, [open]);
   return vehicles;
 };

@@ -88,7 +88,7 @@ class TestOverview:
         assert r.status_code == 200, r.text
         d = r.json()
         assert len(d["series"]) == 14
-        assert d["series"][-1]["date"] in ("2026-11-20", "2026-11-21", "2026-11-22")
+        assert d["series"][-1]["date"] in ("2026-11-20", "2026-11-21", "2026-11-22", "2026-11-23", "2026-11-24")
         m = d["month"]
         assert m["outstanding"] == max(m["expected"] - m["verified"], 0)
         pend = requests.get(f"{API}/accounts/summary", headers=H("u-acc-1")).json()["pending_count"]

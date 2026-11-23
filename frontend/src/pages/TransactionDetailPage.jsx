@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, CalendarDays, Check, X, PencilLine, RotateCcw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -60,8 +62,89 @@ const RejectDialog = ({ open, onOpenChange, onConfirm, busy }) => {
   );
 };
 
-const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit }) => {
+const EditUtrDialog = ({ open, onOpenChange, currentUtr, onSave, busy }) => {
+  const [utr, setUtr] = useState("");
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setUtr(currentUtr || "");
+      setReason("");
+    }
+  }, [open, currentUtr]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!utr.trim()) return;
+    onSave(utr.trim().toUpperCase(), reason.trim());
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="edit-utr-dialog" className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>Edit UTR / Transaction Reference</DialogTitle>
+          <DialogDescription>
+            Update the reference number if there was a typo during entry or to match the bank statement.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-utr-input" className="text-xs font-semibold">UTR / Transaction Ref.</Label>
+            <Input
+              id="edit-utr-input"
+              data-testid="edit-utr-input"
+              value={utr}
+              onChange={(e) => setUtr(e.target.value.toUpperCase())}
+              placeholder="e.g. 432198765012"
+              className="font-mono text-base font-semibold"
+              required
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-utr-reason" className="text-xs">Reason for change (optional)</Label>
+            <Input
+              id="edit-utr-reason"
+              data-testid="edit-utr-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Typo in staff entry / Bank statement match"
+            />
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {["Typo in staff entry", "Matched bank statement", "Corrected from screenshot"].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setReason(r)}
+                  className="rounded-full border px-2.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy || !utr.trim() || utr.trim().toUpperCase() === currentUtr}
+              data-testid="save-utr-button"
+            >
+              {busy ? "Saving…" : "Save UTR"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUtr }) => {
   const canVerify = ["accounts", "admin"].includes(user.role) && t.status === "pending";
+  const canEditUtr = ["accounts", "admin"].includes(user.role);
   const own = t.submitted_by === user.id || t.last_modified_by === user.id;
   const selfBlock = false;
   return (
@@ -73,10 +156,15 @@ const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit }) => {
           <Button disabled={selfBlock} variant="outline" onClick={onReject} className="h-11 border-[#9F1239] text-[#9F1239] hover:bg-[#FFF1F2] hover:text-[#881337]" data-testid="reject-payment-button"><X className="mr-1.5 h-4 w-4" />REJECT PAYMENT</Button>
         </div>
       )}
+      {canEditUtr && (
+        <Button variant="outline" className="w-full" onClick={onEditUtr} data-testid="edit-utr-button">
+          <PencilLine className="mr-1.5 h-4 w-4" />Edit UTR Number
+        </Button>
+      )}
       {t.status === "rejected" && (user.role === "admin" || own) && (
         <Button className="w-full" onClick={onResubmit} data-testid="resubmit-payment-button"><RotateCcw className="mr-1.5 h-4 w-4" />Correct & Resubmit</Button>
       )}
-      {user.role === "admin" && t.status !== "rejected" && (
+      {["accounts", "admin"].includes(user.role) && t.status !== "rejected" && (
         <Button variant="outline" className="w-full" onClick={onCorrect} data-testid="admin-correct-button"><PencilLine className="mr-1.5 h-4 w-4" />Authorised correction</Button>
       )}
     </div>
@@ -91,6 +179,7 @@ export default function TransactionDetailPage() {
   const [confirm, setConfirm] = useState(false);
   const [reject, setReject] = useState(false);
   const [edit, setEdit] = useState(null);
+  const [editUtr, setEditUtr] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => api.get(`/transactions/${id}`).then((r) => setT(r.data)).catch((e) => toast.error(errMsg(e))), [id]);
@@ -104,6 +193,20 @@ export default function TransactionDetailPage() {
       toast.success(msg);
       setConfirm(false);
       setReject(false);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveUtr = async (newUtr, reason) => {
+    setBusy(true);
+    try {
+      const { data } = await api.put(`/transactions/${id}/utr`, { utr: newUtr, reason });
+      setT(data);
+      toast.success(`UTR updated to ${newUtr}`);
+      setEditUtr(false);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -145,7 +248,23 @@ export default function TransactionDetailPage() {
               <Row label="Joining date">{fmtDate(d?.joining_date)}</Row>
               <Row label="Payment date" testId="txn-payment-date">{fmtDate(t.payment_date)}</Row>
               <Row label="Daily rent">{inr(d?.daily_rent)}{d && t.amount < d.daily_rent && <span className="ml-2 text-xs text-[oklch(0.44_0.1_245)]">(partial)</span>}</Row>
-              <Row label="UTR" testId="txn-utr"><span className="font-mono">{t.utr}</span></Row>
+              <Row label="UTR" testId="txn-utr">
+                <div className="flex items-center justify-end gap-2">
+                  <span className="font-mono">{t.utr}</span>
+                  {["accounts", "admin"].includes(user?.role) && (
+                    <button
+                      type="button"
+                      onClick={() => setEditUtr(true)}
+                      className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                      data-testid="row-edit-utr-btn"
+                      title="Edit UTR reference"
+                    >
+                      <PencilLine className="h-3 w-3" />
+                      Edit
+                    </button>
+                  )}
+                </div>
+              </Row>
               <Row label="Payment method">{t.method}{t.is_split ? " · split" : ""}</Row>
               <Row label="Entered by">{t.submitted_by_name}</Row>
               <Row label="Entry time">{fmtDateTime(t.submitted_at)}</Row>
@@ -155,7 +274,7 @@ export default function TransactionDetailPage() {
             {t.status === "rejected" && <div className="st-rejected st-pill mt-3 rounded-md p-3 text-sm" data-testid="txn-rejection-reason"><b>Rejection reason:</b> {t.rejection_reason}</div>}
           </section>
           <Actions t={t} user={user} onApprove={() => setConfirm(true)} onReject={() => setReject(true)}
-            onCorrect={() => setEdit("correct")} onResubmit={() => setEdit("resubmit")} />
+            onCorrect={() => setEdit("correct")} onResubmit={() => setEdit("resubmit")} onEditUtr={() => setEditUtr(true)} />
           <AuditTrail items={t.audit} />
         </div>
       </div>
@@ -173,6 +292,7 @@ export default function TransactionDetailPage() {
         </AlertDialogContent>
       </AlertDialog>
       <RejectDialog open={reject} onOpenChange={setReject} busy={busy} onConfirm={(remarks) => act("reject", { remarks }, "Payment rejected — staff notified")} />
+      <EditUtrDialog open={editUtr} onOpenChange={setEditUtr} currentUtr={t.utr} onSave={handleSaveUtr} busy={busy} />
       <PaymentDialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)} mode={edit} driver={d} date={t.payment_date} txn={t} onDone={load} />
     </div>
   );

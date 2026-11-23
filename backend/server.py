@@ -48,6 +48,10 @@ INDEXES: dict[str, list[IndexModel]] = {
                    partialFilterExpression={"mobile": {"$type": "string", "$gt": ""}}),
         IndexModel([("current_vehicle_id", ASCENDING)], name="current_vehicle", unique=True,
                    partialFilterExpression={"current_vehicle_id": {"$type": "string"}}),
+        IndexModel([("city", ASCENDING)], name="driver_city"),
+        IndexModel([("status", ASCENDING)], name="driver_status"),
+        IndexModel([("city", ASCENDING), ("status", ASCENDING)], name="driver_city_status"),
+        IndexModel([("name", ASCENDING)], name="driver_name"),
     ],
     "transactions": [
         IndexModel([("id", ASCENDING)], name="id", unique=True),
@@ -55,6 +59,11 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="status_submitted"),
         IndexModel([("utr", ASCENDING)], name="utr"),
         IndexModel([("payment_date", ASCENDING)], name="payment_date"),
+        IndexModel([("city", ASCENDING)], name="txn_city"),
+        IndexModel([("city", ASCENDING), ("payment_date", ASCENDING)], name="txn_city_date"),
+        IndexModel([("status", ASCENDING), ("payment_date", ASCENDING)], name="txn_status_date"),
+        IndexModel([("vehicle_id", ASCENDING)], name="txn_vehicle_id"),
+        IndexModel([("driver_code", ASCENDING)], name="txn_driver_code"),
     ],
     "audit_logs": [IndexModel([("ts", DESCENDING)], name="ts"), IndexModel([("entity_id", ASCENDING)], name="entity")],
     "notifications": [IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)], name="user_created")],
@@ -64,6 +73,9 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("reg_key", ASCENDING)], name="reg_key", unique=True),
         IndexModel([("vin", ASCENDING)], name="vin", unique=True,
                    partialFilterExpression={"vin": {"$type": "string", "$gt": ""}}),
+        IndexModel([("city", ASCENDING)], name="veh_city"),
+        IndexModel([("status", ASCENDING)], name="veh_status"),
+        IndexModel([("city", ASCENDING), ("status", ASCENDING)], name="veh_city_status"),
     ],
     "vehicle_assignments": [IndexModel([("driver_id", ASCENDING), ("start_at", DESCENDING)], name="driver_start"),
                             IndexModel([("vehicle_id", ASCENDING)], name="vehicle")],
@@ -263,6 +275,11 @@ class TxnEdit(BaseModel):
 
 class RejectIn(BaseModel):
     remarks: str = Field(min_length=3)
+
+
+class UtrUpdateIn(BaseModel):
+    utr: str = Field(min_length=3)
+    reason: Optional[str] = "Corrected by Accounts"
 
 
 class ImportRowIn(BaseModel):
@@ -1734,8 +1751,39 @@ async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "a
     return await get_txn(tid, user)
 
 
+@api.put("/transactions/{tid}/utr")
+async def update_txn_utr(tid: str, body: UtrUpdateIn, user=Depends(require("accounts", "admin"))):
+    t = await get_txn_or_404(tid)
+    new_utr = (body.utr or "").strip().upper()
+    if not new_utr or len(new_utr) < 3:
+        raise HTTPException(400, "Valid UTR reference is required (min 3 characters)")
+    if new_utr != (t.get("utr") or "").strip().upper():
+        dup = await db.transactions.find_one({"utr": new_utr, "id": {"$ne": tid}, "status": {"$ne": "rejected"}})
+        if dup:
+            raise HTTPException(409, f"UTR {new_utr} has already been used in transaction {dup['id']} ({dup.get('driver_name')})")
+        old_utr = t.get("utr")
+        reason_str = (body.reason or "").strip() or "UTR updated by Accounts"
+        await db.transactions.update_one(
+            {"id": tid},
+            {
+                "$set": {"utr": new_utr, "last_modified_by": user["id"]},
+                "$push": {
+                    "corrections": {
+                        "reason": reason_str,
+                        "by": user["name"],
+                        "at": now_iso(),
+                        "prev_utr": old_utr,
+                        "new_utr": new_utr
+                    }
+                }
+            }
+        )
+        await audit(user, "UTR updated", "transaction", tid, old_utr, new_utr, t["driver_id"])
+    return await get_txn(tid, user)
+
+
 @api.put("/transactions/{tid}/correct")
-async def correct_txn(tid: str, body: TxnEdit, user=Depends(require("admin"))):
+async def correct_txn(tid: str, body: TxnEdit, user=Depends(require("accounts", "admin"))):
     t = await get_txn_or_404(tid)
     if len(body.reason.strip()) < 5:
         raise HTTPException(400, "A correction reason is required (min 5 characters)")
@@ -1990,7 +2038,9 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
     today = today_ist()
     start, month_start = today - timedelta(days=days - 1), today.replace(day=1)
     first = min(start, month_start).isoformat()
-    drivers = [x for x in await db.drivers.find({}, P).to_list(20000) if x.get("status") == "Active"]
+    DRV_PROJ = {"_id": 0, "id": 1, "name": 1, "city": 1, "status": 1, "daily_rent": 1,
+                "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "current_vehicle_id": 1}
+    drivers = await db.drivers.find({"status": "Active"}, DRV_PROJ).to_list(20000)
     txns = await db.transactions.find({"payment_date": {"$gte": first, "$lte": today.isoformat()}},
                                       {"_id": 0, "driver_id": 1, "city": 1, "payment_date": 1, "amount": 1, "status": 1}).to_list(200000)
     by = {}
@@ -2008,7 +2058,7 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
     m_ver = sums(mts, "approved")
 
     all_vehicles = await db.vehicles.find({}, {"_id": 0, "vehicle_id": 1, "city": 1, "status": 1, "rental_status": 1}).to_list(20000)
-    assigned_vids = {d["current_vehicle_id"] for d in await db.drivers.find({"current_vehicle_id": {"$ne": None}}, {"_id": 0, "current_vehicle_id": 1}).to_list(20000)}
+    assigned_vids = {d["current_vehicle_id"] for d in drivers if d.get("current_vehicle_id")}
     drv_city_by_id = {d["id"]: d.get("city") for d in drivers if d.get("city")}
     city_map = {}
 
