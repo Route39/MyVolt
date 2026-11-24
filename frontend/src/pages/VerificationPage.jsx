@@ -8,11 +8,22 @@ import { TransactionsTable, VERIFY_COLS } from "@/components/TransactionsTable";
 import { TxnFilters, EMPTY_FILTERS, toParams } from "@/components/TxnFilters";
 import { PageHeader, StatCard, Pager } from "@/components/kit";
 import { api } from "@/lib/api";
-import { inr } from "@/lib/format";
+import { fmtDate, inr, MONTHS } from "@/lib/format";
 
 const Stat = ({ label, value, cls, testId }) => <StatCard label={label} value={value} tone={cls} testId={testId} />;
 const SIZE = 25;
 const KEY = "verification_state";
+
+const fmtPeriod = (p) => {
+  if (!p) return "";
+  if (p.length === 10) return fmtDate(p);
+  if (p.length === 7) {
+    const [y, m] = p.split("-");
+    const mIdx = parseInt(m, 10) - 1;
+    return `${MONTHS[mIdx] || m} ${y}`;
+  }
+  return p;
+};
 
 export default function VerificationPage() {
   const nav = useNavigate();
@@ -94,17 +105,18 @@ export default function VerificationPage() {
     } finally { setBusy(false); }
   };
 
-  const cell = (k) => `${psum[k].count} · ${inr(psum[k].amount)}`;
+  const cell = (k) => `${psum?.[k]?.count ?? 0} · ${inr(psum?.[k]?.amount ?? 0)}`;
+  const periodLabel = fmtPeriod(period);
 
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Accounts Verification" subtitle="Check each screenshot against its UTR before approving. Only approved payments count as collected." />
       {psum ? (
         <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
-          <Stat label={`Approved · ${period}`} value={cell("approved")} cls="st-verified" testId="period-approved" />
-          <Stat label={`Pending · ${period}`} value={cell("pending")} cls="st-pending" testId="period-pending" />
-          <Stat label={`Rejected · ${period}`} value={cell("rejected")} cls="st-rejected" testId="period-rejected" />
-          <Stat label={`Total · ${period}`} value={`${psum.approved.count + psum.pending.count + psum.rejected.count} · ${inr(psum.approved.amount + psum.pending.amount + psum.rejected.amount)}`} testId="period-total" />
+          <Stat label={`Approved · ${periodLabel}`} value={cell("approved")} cls="st-verified" testId="period-approved" />
+          <Stat label={`Pending · ${periodLabel}`} value={cell("pending")} cls="st-pending" testId="period-pending" />
+          <Stat label={`Rejected · ${periodLabel}`} value={cell("rejected")} cls="st-rejected" testId="period-rejected" />
+          <Stat label={`Total · ${periodLabel}`} value={`${(psum?.approved?.count || 0) + (psum?.pending?.count || 0) + (psum?.rejected?.count || 0)} · ${inr((psum?.approved?.amount || 0) + (psum?.pending?.amount || 0) + (psum?.rejected?.amount || 0))}`} testId="period-total" />
         </div>
       ) : sum && (
         <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">

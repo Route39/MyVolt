@@ -602,12 +602,29 @@ DRIVER_CODE_RX = re.compile(r"^[A-Z0-9]{2,12}-[A-Z0-9-]{1,20}$")
 STD_DRIVER_CODE_RX = re.compile(r"^[A-Z]{2,5}-D-\d{3,}$")
 
 
-@api.post("/drivers")
-async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
+async def next_driver_id():
     last = await db.drivers.find({}, {"_id": 0, "id": 1}).to_list(20000)
     nums = [int(d["id"].split("-")[-1]) for d in last if d["id"].split("-")[-1].isdigit()]
-    ctr = await db.counters.find_one_and_update({"id": "driver_id_seq"}, {"$inc": {"seq": 1}}, upsert=True, return_document=ReturnDocument.AFTER)
-    next_num = max(max(nums) if nums else 1000, int(ctr.get("seq", 1000))) + 1
+    max_num = max(nums) if nums else 1000
+    while True:
+        c = await db.counters.find_one_and_update(
+            {"id": "driver_id_seq"},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER
+        )
+        seq = max(c.get("seq", 1000), max_num + 1)
+        if seq > c.get("seq", 0):
+            await db.counters.update_one({"id": "driver_id_seq"}, {"$set": {"seq": seq}})
+        did = f"R39-DRV-{seq}"
+        if not await db.drivers.find_one({"id": did}):
+            return did
+        max_num = seq
+
+
+@api.post("/drivers")
+async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
+    new_driver_id = await next_driver_id()
     data = body.model_dump(exclude={"driver_code", "current_vehicle_id"})
     data["handover_date"] = data["handover_date"] or data["joining_date"]
     data["rent_start_date"] = data["rent_start_date"] or data["handover_date"]
@@ -632,7 +649,7 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
     else:
         code = await next_code("driver", city_prefix(data["city"]))
     stored_veh_no = (body.vehicle_no or "").strip().upper() if body.vehicle_no else ""
-    doc = {"id": f"R39-DRV-{next_num}", "driver_code": code, **data, "vehicle_no": stored_veh_no,
+    doc = {"id": new_driver_id, "driver_code": code, **data, "vehicle_no": stored_veh_no,
            "current_vehicle_id": None, "adjustments": [], "created_at": now_iso()}
     await db.drivers.insert_one(doc)
     doc.pop("_id", None)
@@ -1687,9 +1704,18 @@ async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = Non
     if summary:
         f.pop("status", None)
         out = {k: {"count": 0, "amount": 0} for k in ("pending", "approved", "rejected")}
-        async for g in db.transactions.aggregate([{"$match": f}, {"$group": {"_id": "$status", "count": {"$sum": 1}, "amount": {"$sum": "$amount"}}}]):
-            if g["_id"] in out:
-                out[g["_id"]] = {"count": g["count"], "amount": g["amount"]}
+        try:
+            async for g in db.transactions.aggregate([{"$match": f}, {"$group": {"_id": "$status", "count": {"$sum": 1}, "amount": {"$sum": "$amount"}}}]):
+                if g["_id"] in out:
+                    out[g["_id"]] = {"count": g["count"], "amount": g["amount"]}
+            return out
+        except Exception:
+            pass
+        async for t in db.transactions.find(f, {"_id": 0, "status": 1, "amount": 1}):
+            st = t.get("status")
+            if st in out:
+                out[st]["count"] += 1
+                out[st]["amount"] += t.get("amount", 0)
         return out
     sort_key = sort if sort in {"submitted_at", "payment_date", "amount", "driver_name", "status", "verified_at"} else "submitted_at"
     cur = db.transactions.find(f, P).sort([(sort_key, 1 if dir == "asc" else -1), ("id", -1)])

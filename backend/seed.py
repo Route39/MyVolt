@@ -110,7 +110,7 @@ async def seed(db, put_object, app_name):
 
     n = 0
     for drv in drivers[:6]:
-        for back in range(1, 19):
+        for back in range(0, 20):
             pd = today - timedelta(days=back)
             if pd.isoformat() < drv["rent_start_date"] or pd.isoformat() in drv["rent_free_dates"]:
                 continue
