@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, X } from "lucide-react";
+import { Calendar, Download, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,27 +128,21 @@ export default function VerificationPage() {
     all: { label: `Total Transactions${sfx}`, value: `${total.count} · ${inr(total.amount)}`, cls: "", testId: "stat-total" },
   };
 
-  // The active tab's card appears first, followed by the others for rapid context
-  const cardOrder = tab === "rejected"
-    ? ["rejected", "pending", "approved", "all"]
-    : tab === "approved"
-    ? ["approved", "pending", "rejected", "all"]
-    : tab === "all"
-    ? ["all", "pending", "approved", "rejected"]
-    : ["pending", "approved", "rejected", "all"];
+  // Keep stat cards in fixed, stable, predictable order: Pending, Approved, Rejected, Total
+  const CARD_LIST = ["pending", "approved", "rejected", "all"];
 
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Accounts Verification" subtitle="Check each screenshot against its UTR before approving. Only approved payments count as collected." />
       <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
-        {cardOrder.map((key) => {
+        {CARD_LIST.map((key) => {
           const c = statCards[key];
           const isActive = tab === key;
           return (
             <div
               key={key}
               onClick={() => onTab(key)}
-              className={`cursor-pointer transition-all hover:opacity-95 ${isActive ? "ring-2 ring-primary/80 rounded-xl" : ""}`}
+              className={`cursor-pointer transition-all rounded-xl ${isActive ? "ring-2 ring-primary/80 bg-primary/[0.03] shadow-sm" : "hover:shadow-sm opacity-95 hover:opacity-100"}`}
             >
               <Stat label={c.label} value={c.value} cls={c.cls} testId={c.testId} />
             </div>
@@ -166,8 +160,22 @@ export default function VerificationPage() {
             </TabsList>
           </Tabs>
           <div className="flex items-center gap-2">
-            <Input type="month" value={month} onChange={(e) => onMonth(e.target.value)} className="h-9 w-44" data-testid="filter-month" />
-            {month && <Button variant="ghost" size="sm" className="h-9" onClick={() => onMonth("")}><X className="h-4 w-4" /></Button>}
+            <div className="flex h-9 items-center gap-1.5 rounded-md border border-[#E5E7EB] bg-white px-2.5 text-xs text-[#64748B] focus-within:border-primary">
+              <Calendar className="h-3.5 w-3.5 text-[#94A3B8]" />
+              <span className="font-medium text-[#64748B]">Month:</span>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => onMonth(e.target.value)}
+                className="h-7 border-0 bg-transparent text-xs font-semibold text-[#17212B] focus:outline-none"
+                data-testid="filter-month"
+              />
+              {month && (
+                <button type="button" onClick={() => onMonth("")} className="text-[#94A3B8] hover:text-[#17212B]">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
             <Button size="sm" className="h-9" onClick={download} disabled={busy} data-testid="verification-download">
               <Download className="mr-1 h-4 w-4" />{busy ? "Downloading..." : "Download"}
             </Button>

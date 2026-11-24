@@ -160,22 +160,43 @@ export const Shell = () => {
         <SideNav collapsed={collapsed} />
       </aside>
       <div className={`transition-[padding] duration-200 ${collapsed ? "lg:pl-[68px]" : "lg:pl-[236px]"}`}>
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-[#E5E7EB] bg-white/95 px-3 backdrop-blur sm:px-5">
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild><Button variant="ghost" size="icon" className="lg:hidden" data-testid="mobile-menu-button"><Menu className="h-5 w-5" /></Button></SheetTrigger>
-            <SheetContent side="left" className="w-[248px] border-0 p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SideNav collapsed={false} onNavigate={() => setOpen(false)} />
-            </SheetContent>
-          </Sheet>
-          <Button variant="ghost" size="icon" className="hidden h-8 w-8 text-[#64748B] lg:inline-flex" onClick={toggle} data-testid="sidebar-collapse-button">
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </Button>
-          <div className="hidden truncate text-[13px] font-semibold text-[#17212B] sm:block" data-testid="page-title">{title}</div>
-          <div className="ml-auto hidden w-[220px] md:block w992:w-[300px] w1440:w-[360px]">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[#E5E7EB] bg-white/95 px-3 backdrop-blur sm:px-5">
+          {/* Left: Mobile menu + collapse toggle + title */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Sheet open={open} onOpenChange={setOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="lg:hidden" data-testid="mobile-menu-button">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[248px] border-0 p-0">
+                <SheetTitle className="sr-only">Navigation</SheetTitle>
+                <SideNav collapsed={false} onNavigate={() => setOpen(false)} />
+              </SheetContent>
+            </Sheet>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden h-8 w-8 text-[#64748B] hover:text-[#17212B] hover:bg-black/5 lg:inline-flex"
+              onClick={toggle}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              data-testid="sidebar-collapse-button"
+            >
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
+            <div className="hidden h-4 w-px bg-[#E5E7EB] lg:block" />
+            <div className="hidden truncate text-[13.5px] font-semibold text-[#17212B] sm:block" data-testid="page-title">
+              {title}
+            </div>
+          </div>
+
+          {/* Center: Global Driver Search */}
+          <div className="hidden flex-1 max-w-sm mx-4 md:block">
             <DriverSearch compact value={null} onSelect={(d) => nav(`/calendar?driver=${d.id}`)} placeholder="Search drivers…" testId="global-search" />
           </div>
-          <div className="ml-auto flex items-center gap-2 md:ml-2">
+
+          {/* Right: Notifications + User Profile + Logout */}
+          <div className="flex items-center gap-2 shrink-0">
             <NotificationBell />
             <UserIdentityPill />
             <Button
