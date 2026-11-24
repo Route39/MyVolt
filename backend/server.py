@@ -80,6 +80,7 @@ INDEXES: dict[str, list[IndexModel]] = {
     "vehicle_assignments": [IndexModel([("driver_id", ASCENDING), ("start_at", DESCENDING)], name="driver_start"),
                             IndexModel([("vehicle_id", ASCENDING)], name="vehicle")],
     "counters": [IndexModel([("id", ASCENDING)], name="id", unique=True)],
+    "user_state": [IndexModel([("user_id", ASCENDING), ("key", ASCENDING)], name="user_key", unique=True)],
 }
 
 
@@ -376,6 +377,32 @@ async def users_switcher():
 @api.get("/me")
 async def me(user=Depends(current_user)):
     return user
+
+
+class UserStateIn(BaseModel):
+    value: Any
+
+
+@api.get("/user/state/{key}")
+async def get_user_state(key: str, user=Depends(current_user)):
+    doc = await db.user_state.find_one({"user_id": user["id"], "key": key}, {"_id": 0, "value": 1})
+    return {"key": key, "value": doc["value"] if doc else {}}
+
+
+@api.put("/user/state/{key}")
+async def set_user_state(key: str, body: UserStateIn, user=Depends(current_user)):
+    await db.user_state.update_one(
+        {"user_id": user["id"], "key": key},
+        {"$set": {"user_id": user["id"], "key": key, "value": body.value, "updated_at": now_iso()}},
+        upsert=True
+    )
+    return {"ok": True, "key": key, "value": body.value}
+
+
+@api.delete("/user/state/{key}")
+async def delete_user_state(key: str, user=Depends(current_user)):
+    await db.user_state.delete_one({"user_id": user["id"], "key": key})
+    return {"ok": True, "key": key}
 
 
 @api.get("/users")

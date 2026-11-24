@@ -13,16 +13,15 @@ import { inr } from "@/lib/format";
 const Stat = ({ label, value, cls, testId }) => <StatCard label={label} value={value} tone={cls} testId={testId} />;
 const SIZE = 25;
 const KEY = "verification_state";
-const load = () => { try { return JSON.parse(sessionStorage.getItem(KEY)) || {}; } catch { return {}; } };
 
 export default function VerificationPage() {
   const nav = useNavigate();
-  const [init] = useState(load);
-  const [tab, setTab] = useState(init.tab || "pending");
-  const [filters, setFilters] = useState(init.filters || EMPTY_FILTERS);
-  const [month, setMonth] = useState(init.month || "");
-  const [page, setPage] = useState(init.page || 1);
-  const [sort, setSort] = useState(init.sort || { key: "submitted_at", dir: "asc" });
+  const [tab, setTab] = useState("pending");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [month, setMonth] = useState("");
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: "submitted_at", dir: "asc" });
+  const [dbLoaded, setDbLoaded] = useState(false);
   const [rows, setRows] = useState({ items: [], total: 0 });
   const [sum, setSum] = useState(null);
   const [psum, setPsum] = useState(null);
@@ -33,9 +32,33 @@ export default function VerificationPage() {
   const baseKey = JSON.stringify(base);
   const period = filters.payment_date || month;
 
+  // 1. Load persisted state from DB on mount
   useEffect(() => {
-    sessionStorage.setItem(KEY, JSON.stringify({ tab, filters, month, page, sort }));
-  }, [tab, filters, month, page, sort]);
+    let active = true;
+    api.get(`/user/state/${KEY}`).then((r) => {
+      if (!active) return;
+      const v = r.data?.value;
+      if (v && typeof v === "object") {
+        if (v.tab) setTab(v.tab);
+        if (v.filters) setFilters(v.filters);
+        if (v.month !== undefined) setMonth(v.month);
+        if (v.page) setPage(v.page);
+        if (v.sort) setSort(v.sort);
+      }
+    }).catch(() => {}).finally(() => {
+      if (active) setDbLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
+
+  // 2. Persist state changes directly in DB
+  useEffect(() => {
+    if (!dbLoaded) return;
+    const t = setTimeout(() => {
+      api.put(`/user/state/${KEY}`, { value: { tab, filters, month, page, sort } }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [dbLoaded, tab, filters, month, page, sort]);
 
   useEffect(() => { api.get("/accounts/summary").then((r) => setSum(r.data)); }, []);
 
