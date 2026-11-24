@@ -129,13 +129,26 @@ const UserIdentityPill = () => {
 
 export const Shell = () => {
   const [open, setOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(localStorage.getItem("r39_nav") === "1");
+  const [collapsed, setCollapsed] = useState(false);
   const { logout } = useUser();
   const { pathname } = useLocation();
   const nav = useNavigate();
   const all = [...SECTIONS.flatMap((s) => s.items), ...BOTTOM];
   const title = all.find((n) => pathname.startsWith(n.to))?.label || TITLES[`/${pathname.split("/")[1]}`] || "";
-  const toggle = () => { localStorage.setItem("r39_nav", collapsed ? "0" : "1"); setCollapsed(!collapsed); };
+
+  useEffect(() => {
+    let active = true;
+    api.get("/user/state/nav_collapsed").then((r) => {
+      if (active && r.data?.value !== undefined) setCollapsed(!!r.data.value);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    api.put("/user/state/nav_collapsed", { value: next }).catch(() => {});
+  };
   const handleLogout = async () => {
     await logout();
     toast.success("Logged out");

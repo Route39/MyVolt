@@ -13,6 +13,8 @@ import { todayIso } from "@/lib/format";
 
 const SIZE = 25;
 
+const KEY = "ledger_state";
+
 export default function HistoryPage() {
   const nav = useNavigate();
   const [driver, setDriver] = useState(null);
@@ -20,11 +22,37 @@ export default function HistoryPage() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ key: "submitted_at", dir: "desc" });
   const [page, setPage] = useState(1);
+  const [dbLoaded, setDbLoaded] = useState(false);
   const [data, setData] = useState({ items: [], total: 0 });
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const params = { ...toParams(filters), q, driver_id: driver?.id, sort: sort.key, dir: sort.dir };
   const key = JSON.stringify(params);
+
+  useEffect(() => {
+    let active = true;
+    api.get(`/user/state/${KEY}`).then((r) => {
+      if (!active) return;
+      const v = r.data?.value;
+      if (v && typeof v === "object") {
+        if (v.filters) setFilters(v.filters);
+        if (v.q !== undefined) setQ(v.q);
+        if (v.sort) setSort(v.sort);
+        if (v.page) setPage(v.page);
+      }
+    }).catch(() => {}).finally(() => {
+      if (active) setDbLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!dbLoaded) return;
+    const t = setTimeout(() => {
+      api.put(`/user/state/${KEY}`, { value: { filters, q, sort, page } }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [dbLoaded, filters, q, sort, page]);
 
   useEffect(() => { setPage(1); }, [key]);
   useEffect(() => {
