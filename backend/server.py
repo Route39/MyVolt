@@ -7,7 +7,7 @@ import logging
 from contextlib import suppress
 from datetime import datetime, timezone, timedelta, date, time
 from pathlib import Path
-from typing import Optional, List, Literal
+from typing import Any, Optional, List, Literal
 
 from dotenv import load_dotenv
 
@@ -1619,7 +1619,7 @@ async def create_txn(body: TxnIn, user=Depends(require("staff", "admin"))):
 @api.get("/transactions")
 async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = None, q: str = "",
                     driver_name: str = "", vehicle: str = "", utr: str = "", payment_date: str = "",
-                    city: str = "", staff_id: str = "", date_from: str = "", date_to: str = "",
+                    city: str = "", staff_id: str = "", date_from: str = "", date_to: str = "", month: str = "", summary: bool = False,
                     page: Optional[int] = Query(None, ge=1), page_size: int = Query(25, ge=1, le=200),
                     sort: str = "submitted_at", dir: str = "desc", format: str = "json", user=Depends(current_user)):
     f = {}
@@ -1627,7 +1627,7 @@ async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = Non
         f["status"] = status
     if driver_id:
         f["driver_id"] = driver_id
-    for field, val in [("driver_name", driver_name), ("utr", utr)]:
+    for field, val in [("utr", utr)]:
         if val.strip():
             f[field] = {"$regex": re.escape(val.strip()), "$options": "i"}
     if city and city != "all":
@@ -1637,14 +1637,19 @@ async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = Non
         else:
             f["city"] = {"$regex": re.escape(city.strip()), "$options": "i"}
     ands = []
+    if driver_name.strip():
+        nrx = {"$regex": re.escape(driver_name.strip()), "$options": "i"}
+        ands.append({"$or": [{"driver_name": nrx}, {"driver_code": nrx}, {"driver_id": nrx}]})
     if vehicle.strip():
         vrx = {"$regex": re.escape(vehicle.strip()), "$options": "i"}
         ands.append({"$or": [{"vehicle_no": vrx}, {"vehicle_id": vrx}]})
     if payment_date:
         f["payment_date"] = payment_date
+    elif month:
+        f["payment_date"] = {"$regex": "^" + re.escape(month.strip())}
     elif date_from or date_to:
         f["payment_date"] = {k: v for k, v in [("$gte", date_from), ("$lte", date_to)] if v}
-    if staff_id:
+    if staff_id and staff_id != "all":
         f["submitted_by"] = staff_id
     if q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
@@ -1652,6 +1657,13 @@ async def list_txns(status: Optional[str] = None, driver_id: Optional[str] = Non
                              {"vehicle_id": rx}, {"utr": rx}, {"id": rx}]})
     if ands:
         f["$and"] = ands
+    if summary:
+        f.pop("status", None)
+        out = {k: {"count": 0, "amount": 0} for k in ("pending", "approved", "rejected")}
+        async for g in db.transactions.aggregate([{"$match": f}, {"$group": {"_id": "$status", "count": {"$sum": 1}, "amount": {"$sum": "$amount"}}}]):
+            if g["_id"] in out:
+                out[g["_id"]] = {"count": g["count"], "amount": g["amount"]}
+        return out
     sort_key = sort if sort in {"submitted_at", "payment_date", "amount", "driver_name", "status", "verified_at"} else "submitted_at"
     cur = db.transactions.find(f, P).sort([(sort_key, 1 if dir == "asc" else -1), ("id", -1)])
     if format == "xlsx":

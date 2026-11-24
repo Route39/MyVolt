@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Download, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { TransactionsTable, VERIFY_COLS } from "@/components/TransactionsTable";
 import { TxnFilters, EMPTY_FILTERS, toParams } from "@/components/TxnFilters";
 import { PageHeader, StatCard, Pager } from "@/components/kit";
@@ -9,35 +12,78 @@ import { inr } from "@/lib/format";
 
 const Stat = ({ label, value, cls, testId }) => <StatCard label={label} value={value} tone={cls} testId={testId} />;
 const SIZE = 25;
+const KEY = "verification_state";
+const load = () => { try { return JSON.parse(sessionStorage.getItem(KEY)) || {}; } catch { return {}; } };
 
 export default function VerificationPage() {
   const nav = useNavigate();
-  const [tab, setTab] = useState("pending");
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [init] = useState(load);
+  const [tab, setTab] = useState(init.tab || "pending");
+  const [filters, setFilters] = useState(init.filters || EMPTY_FILTERS);
+  const [month, setMonth] = useState(init.month || "");
+  const [page, setPage] = useState(init.page || 1);
+  const [sort, setSort] = useState(init.sort || { key: "submitted_at", dir: "asc" });
   const [rows, setRows] = useState({ items: [], total: 0 });
   const [sum, setSum] = useState(null);
-  const [page, setPage] = useState(1);
-  const [sort, setSort] = useState({ key: "submitted_at", dir: "asc" });
+  const [psum, setPsum] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const base = { ...toParams(filters), ...(month && !filters.payment_date ? { month } : {}) };
+  const baseKey = JSON.stringify(base);
+  const period = filters.payment_date || month;
 
   useEffect(() => {
-    api.get("/accounts/summary").then((r) => setSum(r.data));
-  }, []);
-  useEffect(() => { setPage(1); }, [filters, tab, sort]);
+    sessionStorage.setItem(KEY, JSON.stringify({ tab, filters, month, page, sort }));
+  }, [tab, filters, month, page, sort]);
+
+  useEffect(() => { api.get("/accounts/summary").then((r) => setSum(r.data)); }, []);
+
+  useEffect(() => {
+    if (!period) { setPsum(null); return; }
+    api.get("/transactions", { params: { ...base, summary: true } }).then((r) => setPsum(r.data));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseKey]);
 
   useEffect(() => {
     setLoading(true);
     const t = setTimeout(() => {
-      api.get("/transactions", { params: { ...toParams(filters), status: tab, page, page_size: SIZE, sort: sort.key, dir: sort.dir } })
+      api.get("/transactions", { params: { ...base, status: tab, page, page_size: SIZE, sort: sort.key, dir: sort.dir } })
         .then((r) => setRows(r.data)).finally(() => setLoading(false));
     }, 200);
     return () => clearTimeout(t);
-  }, [filters, tab, page, sort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseKey, tab, page, sort]);
+
+  const onTab = (v) => { setTab(v); setPage(1); };
+  const onSort = (v) => { setSort(v); setPage(1); };
+  const onFilters = (f) => { if (f.payment_date) setMonth(""); setFilters(f); setPage(1); };
+  const onMonth = (v) => { setMonth(v); if (v) setFilters((f) => ({ ...f, payment_date: "" })); setPage(1); };
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const r = await api.get("/transactions", { params: { ...base, status: tab, sort: sort.key, dir: sort.dir, format: "xlsx" }, responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = `verification-${tab}-${period || "all"}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setBusy(false); }
+  };
+
+  const cell = (k) => `${psum[k].count} · ${inr(psum[k].amount)}`;
 
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Accounts Verification" subtitle="Check each screenshot against its UTR before approving. Only approved payments count as collected." />
-      {sum && (
+      {psum ? (
+        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
+          <Stat label={`Approved · ${period}`} value={cell("approved")} cls="st-verified" testId="period-approved" />
+          <Stat label={`Pending · ${period}`} value={cell("pending")} cls="st-pending" testId="period-pending" />
+          <Stat label={`Rejected · ${period}`} value={cell("rejected")} cls="st-rejected" testId="period-rejected" />
+          <Stat label={`Total · ${period}`} value={`${psum.approved.count + psum.pending.count + psum.rejected.count} · ${inr(psum.approved.amount + psum.pending.amount + psum.rejected.amount)}`} testId="period-total" />
+        </div>
+      ) : sum && (
         <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
           <Stat label="Pending verification" value={sum.pending_count} cls="st-pending" testId="summary-pending-count" />
           <Stat label="Verified today" value={sum.approved_today} cls="st-verified" testId="summary-approved-today" />
@@ -46,18 +92,27 @@ export default function VerificationPage() {
         </div>
       )}
       <div className="r-card space-y-3 p-3">
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="h-auto w-full flex-wrap justify-start sm:w-auto" data-testid="verification-tabs">
-          <TabsTrigger value="pending" data-testid="tab-pending">Pending</TabsTrigger>
-          <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
-          <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected</TabsTrigger>
-          <TabsTrigger value="all" data-testid="tab-all">All Transactions</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <TxnFilters value={filters} onChange={setFilters} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs value={tab} onValueChange={onTab}>
+            <TabsList className="h-auto flex-wrap justify-start" data-testid="verification-tabs">
+              <TabsTrigger value="pending" data-testid="tab-pending">Pending</TabsTrigger>
+              <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
+              <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected</TabsTrigger>
+              <TabsTrigger value="all" data-testid="tab-all">All Transactions</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <div className="flex items-center gap-2">
+            <Input type="month" value={month} onChange={(e) => onMonth(e.target.value)} className="h-9 w-44" data-testid="filter-month" />
+            {month && <Button variant="ghost" size="sm" className="h-9" onClick={() => onMonth("")}><X className="h-4 w-4" /></Button>}
+            <Button size="sm" className="h-9" onClick={download} disabled={busy} data-testid="verification-download">
+              <Download className="mr-1 h-4 w-4" />{busy ? "Downloading..." : "Download"}
+            </Button>
+          </div>
+        </div>
+        <TxnFilters value={filters} onChange={onFilters} />
       </div>
       <TransactionsTable rows={rows.items} cols={tab === "rejected" ? [...VERIFY_COLS, "reason"] : VERIFY_COLS} testId="verification-table"
-        sort={sort} onSort={setSort} loading={loading}
+        sort={sort} onSort={onSort} loading={loading}
         footer={<Pager page={page} pageSize={SIZE} total={rows.total} onPage={setPage} testId="verification-pager" />}
         empty={tab === "pending" ? "No payments waiting for verification" : "No transactions found"}
         onRowClick={(t) => nav(`/transactions/${t.id}`)} />
