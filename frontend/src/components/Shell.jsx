@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap, LogOut } from "lucide-react";
@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { DriverSearch } from "@/components/DriverSearch";
 import { useUser } from "@/context/UserContext";
 import { ROLE_LABEL } from "@/lib/format";
+import { api } from "@/lib/api";
 
 const ALL = ["staff", "accounts", "admin"];
 const SECTIONS = [
