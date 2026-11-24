@@ -34,8 +34,11 @@ export default function VerificationPage() {
   const [sort, setSort] = useState({ key: "submitted_at", dir: "asc" });
   const [dbLoaded, setDbLoaded] = useState(false);
   const [rows, setRows] = useState({ items: [], total: 0 });
-  const [sum, setSum] = useState(null);
-  const [psum, setPsum] = useState(null);
+  const [sumData, setSumData] = useState({
+    pending: { count: 0, amount: 0 },
+    approved: { count: 0, amount: 0 },
+    rejected: { count: 0, amount: 0 },
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -71,11 +74,13 @@ export default function VerificationPage() {
     return () => clearTimeout(t);
   }, [dbLoaded, tab, filters, month, page, sort]);
 
-  useEffect(() => { api.get("/accounts/summary").then((r) => setSum(r.data)); }, []);
-
+  // Dynamic summary: always fetched for active filters/period
   useEffect(() => {
-    if (!period) { setPsum(null); return; }
-    api.get("/transactions", { params: { ...base, summary: true } }).then((r) => setPsum(r.data));
+    let active = true;
+    api.get("/transactions", { params: { ...base, summary: true } })
+      .then((r) => { if (active && r.data) setSumData(r.data); })
+      .catch(() => {});
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseKey]);
 
@@ -105,35 +110,59 @@ export default function VerificationPage() {
     } finally { setBusy(false); }
   };
 
-  const cell = (k) => `${psum?.[k]?.count ?? 0} · ${inr(psum?.[k]?.amount ?? 0)}`;
   const periodLabel = fmtPeriod(period);
+  const sfx = periodLabel ? ` · ${periodLabel}` : "";
+
+  const pending = sumData?.pending || { count: 0, amount: 0 };
+  const approved = sumData?.approved || { count: 0, amount: 0 };
+  const rejected = sumData?.rejected || { count: 0, amount: 0 };
+  const total = {
+    count: (pending.count || 0) + (approved.count || 0) + (rejected.count || 0),
+    amount: (pending.amount || 0) + (approved.amount || 0) + (rejected.amount || 0),
+  };
+
+  const statCards = {
+    pending: { label: `Pending Verification${sfx}`, value: `${pending.count} · ${inr(pending.amount)}`, cls: "st-pending", testId: "stat-pending" },
+    approved: { label: `Approved Payments${sfx}`, value: `${approved.count} · ${inr(approved.amount)}`, cls: "st-verified", testId: "stat-approved" },
+    rejected: { label: `Rejected Payments${sfx}`, value: `${rejected.count} · ${inr(rejected.amount)}`, cls: "st-rejected", testId: "stat-rejected" },
+    all: { label: `Total Transactions${sfx}`, value: `${total.count} · ${inr(total.amount)}`, cls: "", testId: "stat-total" },
+  };
+
+  // The active tab's card appears first, followed by the others for rapid context
+  const cardOrder = tab === "rejected"
+    ? ["rejected", "pending", "approved", "all"]
+    : tab === "approved"
+    ? ["approved", "pending", "rejected", "all"]
+    : tab === "all"
+    ? ["all", "pending", "approved", "rejected"]
+    : ["pending", "approved", "rejected", "all"];
 
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Accounts Verification" subtitle="Check each screenshot against its UTR before approving. Only approved payments count as collected." />
-      {psum ? (
-        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
-          <Stat label={`Approved · ${periodLabel}`} value={cell("approved")} cls="st-verified" testId="period-approved" />
-          <Stat label={`Pending · ${periodLabel}`} value={cell("pending")} cls="st-pending" testId="period-pending" />
-          <Stat label={`Rejected · ${periodLabel}`} value={cell("rejected")} cls="st-rejected" testId="period-rejected" />
-          <Stat label={`Total · ${periodLabel}`} value={`${(psum?.approved?.count || 0) + (psum?.pending?.count || 0) + (psum?.rejected?.count || 0)} · ${inr((psum?.approved?.amount || 0) + (psum?.pending?.amount || 0) + (psum?.rejected?.amount || 0))}`} testId="period-total" />
-        </div>
-      ) : sum && (
-        <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Pending verification" value={sum.pending_count} cls="st-pending" testId="summary-pending-count" />
-          <Stat label="Verified today" value={sum.approved_today} cls="st-verified" testId="summary-approved-today" />
-          <Stat label="Rejected today" value={sum.rejected_today} cls="st-rejected" testId="summary-rejected-today" />
-          <Stat label="Amount pending" value={inr(sum.pending_amount)} cls="st-pending" testId="summary-pending-amount" />
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-3 w375:grid-cols-2 lg:grid-cols-4">
+        {cardOrder.map((key) => {
+          const c = statCards[key];
+          const isActive = tab === key;
+          return (
+            <div
+              key={key}
+              onClick={() => onTab(key)}
+              className={`cursor-pointer transition-all hover:opacity-95 ${isActive ? "ring-2 ring-primary/80 rounded-xl" : ""}`}
+            >
+              <Stat label={c.label} value={c.value} cls={c.cls} testId={c.testId} />
+            </div>
+          );
+        })}
+      </div>
       <div className="r-card space-y-3 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Tabs value={tab} onValueChange={onTab}>
             <TabsList className="h-auto flex-wrap justify-start" data-testid="verification-tabs">
-              <TabsTrigger value="pending" data-testid="tab-pending">Pending</TabsTrigger>
-              <TabsTrigger value="approved" data-testid="tab-approved">Approved</TabsTrigger>
-              <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected</TabsTrigger>
-              <TabsTrigger value="all" data-testid="tab-all">All Transactions</TabsTrigger>
+              <TabsTrigger value="pending" data-testid="tab-pending">Pending ({pending.count})</TabsTrigger>
+              <TabsTrigger value="approved" data-testid="tab-approved">Approved ({approved.count})</TabsTrigger>
+              <TabsTrigger value="rejected" data-testid="tab-rejected">Rejected ({rejected.count})</TabsTrigger>
+              <TabsTrigger value="all" data-testid="tab-all">All Transactions ({total.count})</TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="flex items-center gap-2">
