@@ -21,7 +21,7 @@ export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search d
       <PopoverTrigger asChild>
         <button
           data-testid={`${testId}-trigger`}
-          className={`flex ${compact ? "h-9 bg-[#F1F5F9]/80 border-[#E2E8F0] hover:bg-white hover:border-[#CBD5E1]" : "h-11 bg-white border"} w-full items-center gap-2 rounded-lg border px-3 text-left text-[13px] transition-all focus:outline-none focus:ring-2 focus:ring-[#EF4444]/20`}
+          className={`flex ${compact ? "h-9 bg-[#F4F6F8] border-transparent" : "h-11 bg-white"} w-full items-center gap-2 rounded-md border px-3 text-left text-[13px] transition-colors hover:border-[#EF4444] focus:outline-none focus:ring-2 focus:ring-ring`}
         >
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           {value ? (
@@ -32,11 +32,7 @@ export const DriverSearch = ({ value, onSelect, compact, placeholder = "Search d
           ) : (
             <span className="truncate text-muted-foreground">{placeholder}</span>
           )}
-          {compact ? (
-            <kbd className="ml-auto hidden rounded border border-gray-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block">⌘K</kbd>
-          ) : (
-            <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-          )}
+          <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[300px] p-0" align="start">

@@ -1931,8 +1931,8 @@ def fmt_ts(s):
 
 TXN_COLS = [("id", "Txn ID"), ("payment_date", "Payment Date"), ("driver_code", "Driver ID"), ("driver_name", "Driver"),
             ("vehicle_id", "Vehicle ID"), ("vehicle_no", "Vehicle Reg. No."), ("city", "City"), ("amount", "Amount (₹)"), ("utr", "UTR"),
-            ("method", "Method"), ("remarks", "Remarks"), ("submitted_by_name", "Entered By"), ("submitted_at", "Submitted At"),
-            ("status", "Status"), ("rejection_reason", "Rejection Reason"), ("verified_by_name", "Verified By"), ("verified_at", "Verified At")]
+            ("method", "Method"), ("submitted_by_name", "Entered By"), ("submitted_at", "Submitted At"),
+            ("status", "Status"), ("verified_by_name", "Verified By"), ("verified_at", "Verified At")]
 
 
 def cell(t, k):
@@ -1940,16 +1940,11 @@ def cell(t, k):
         return fmt_ts(t.get(k))
     if k == "vehicle_id":
         return t.get(k) or "Vehicle ID not recorded"
-    return t.get(k) or ""
+    return t.get(k)
 
 
 def txn_rows(txns, extra=()):
-    seen = set()
-    cols = []
-    for c in TXN_COLS + list(extra):
-        if c[0] not in seen:
-            seen.add(c[0])
-            cols.append(c)
+    cols = TXN_COLS + list(extra)
     rows = [[cell(t, k) for k, _ in cols] for t in txns]
     return [c[1] for c in cols], rows
 
