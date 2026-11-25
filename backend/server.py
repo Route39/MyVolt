@@ -1492,7 +1492,7 @@ async def get_file(fid: str, user=Depends(current_user)):
         raise HTTPException(404, "File not found")
     data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
     return Response(content=data, media_type=rec["content_type"],
-                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename") or "screenshot"}"'})
+                    headers={"Content-Disposition": 'inline; filename="%s"' % ((rec.get("original_filename") or "screenshot").encode("ascii", "ignore").decode().replace('"', '') or "screenshot")})
 
                     # ---------- payment screenshot scan (offline OCR: checks it is a payment receipt + reads the UTR) ----------
 import tempfile
@@ -2179,6 +2179,349 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
                        "vehicles_active": sum(1 for v in all_vehicles if v.get("status") == "Active"),
                        "pending_txns": await db.transactions.count_documents({"status": "pending"})},
             "by_city": by_city}
+# ================== DRIVER APP (mobile OTP login) ==================
+# Drivers created in MyVolt (db.drivers, matched by 10-digit mobile) log into
+# the driver app with mobile + SMS OTP. Driver tokens carry type "driver_access"
+# and a driver id (R39-DRV-...), so they never open admin APIs.
+import secrets as _secrets
+import requests as _requests
+from fastapi import Request as _Request
+
+DRIVER_TOKEN_DAYS = 365
+REVIEWER_PHONE = "9999999999"   # Play Store reviewer: create a MyVolt driver with this mobile
+REVIEWER_OTP = "123456"
+
+
+def _driver_mobile(raw):
+    m = importer.clean_mobile(raw or "")
+    return m[-10:] if len(m) >= 10 else m
+
+
+async def _driver_lockout(key):
+    rec = await db.login_attempts.find_one({"identifier": key}, P)
+    if rec and rec.get("count", 0) >= 5 and (rec.get("locked_until") or "") > now_iso():
+        raise HTTPException(429, "Too many failed attempts. Please try again in a few minutes.")
+
+
+def _driver_token(drv):
+    return jwt.encode({"sub": drv["id"], "mobile": drv.get("mobile", ""), "role": "driver", "type": "driver_access",
+                       "exp": datetime.now(timezone.utc) + timedelta(days=DRIVER_TOKEN_DAYS)}, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def current_app_driver(request: _Request):
+    token = request.cookies.get("driver_access_token")
+    auth = request.headers.get("Authorization", "")
+    if not token and auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except Exception:
+        raise HTTPException(401, "Session expired. Please log in again.")
+    if payload.get("type") != "driver_access":
+        raise HTTPException(401, "Invalid token type")
+    drv = await db.drivers.find_one({"id": payload.get("sub")}, P)
+    if not drv:
+        raise HTTPException(401, "Driver not found")
+    if drv.get("status") == "Inactive":
+        raise HTTPException(403, "Your account is inactive. Please contact Route39.")
+    return drv
+
+
+def _send_otp_sms(mobile, otp):
+    api_id = os.environ.get("BULKSMSPLANS_API_ID")
+    if not api_id:
+        logger.warning("BULKSMSPLANS_API_ID not set; OTP SMS not sent")
+        return
+    params = {"api_id": api_id, "api_password": os.environ.get("BULKSMSPLANS_API_PASSWORD"),
+              "sms_type": "Transactional", "sms_encoding": "text",
+              "sender": os.environ.get("BULKSMSPLANS_SENDER_ID", "ROUTEX"), "number": mobile,
+              "message": f"Your Route39 app verification OTP is {otp}. Keep it confidential for your security.",
+              "template_id": os.environ.get("BULKSMSPLANS_TEMPLATE_ID", "")}
+    try:
+        res = _requests.post("https://bulksmsplans.com/api/send_sms", params=params, timeout=5)
+        logger.info("BulkSMSPlans response: %s", res.text)
+    except Exception as e:
+        logger.warning("OTP SMS failed: %s", e)
+
+
+class DriverOTPRequest(BaseModel):
+    phone: str
+
+
+class DriverOTPLogin(BaseModel):
+    phone: str
+    otp: str
+
+
+@api.post("/driver/auth/request-otp")
+async def driver_request_otp(body: DriverOTPRequest):
+    mob = _driver_mobile(body.phone)
+    if len(mob) != 10:
+        raise HTTPException(400, "Enter a valid 10-digit mobile number")
+    await _driver_lockout("driver:" + mob)
+    drv = await db.drivers.find_one({"mobile": mob}, P)
+    if not drv:
+        raise HTTPException(400, "Driver not found with this mobile number")
+    if drv.get("status") == "Inactive":
+        raise HTTPException(403, "Your account is inactive. Please contact Route39.")
+    if mob == REVIEWER_PHONE:
+        return {"message": "OTP sent successfully"}
+    otp = str(_secrets.randbelow(900000) + 100000)
+    exp = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    await db.otp_codes.update_one({"mobile": mob}, {"$set": {"otp": otp, "expires_at": exp}}, upsert=True)
+    await asyncio.to_thread(_send_otp_sms, mob, otp)
+    return {"message": "OTP sent successfully"}
+
+
+@api.post("/driver/auth/login")
+async def driver_login(body: DriverOTPLogin, response: Response):
+    mob = _driver_mobile(body.phone)
+    key = "driver:" + mob
+    await _driver_lockout(key)
+    drv = await db.drivers.find_one({"mobile": mob}, P) if len(mob) == 10 else None
+    if not drv:
+        raise HTTPException(401, "Invalid mobile number or OTP")
+    if drv.get("status") == "Inactive":
+        raise HTTPException(403, "Your account is inactive. Please contact Route39.")
+    if not (mob == REVIEWER_PHONE and body.otp == REVIEWER_OTP):
+        rec = await db.otp_codes.find_one({"mobile": mob}, P)
+        if not rec or rec.get("otp") != body.otp.strip():
+            await db.login_attempts.update_one(
+                {"identifier": key},
+                {"$inc": {"count": 1}, "$set": {"locked_until": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()}},
+                upsert=True)
+            raise HTTPException(401, "Invalid mobile number or OTP")
+        if rec["expires_at"] < now_iso():
+            raise HTTPException(401, "OTP has expired. Please request a new one.")
+        await db.otp_codes.delete_one({"mobile": mob})
+    await db.login_attempts.delete_one({"identifier": key})
+    token = _driver_token(drv)
+    response.set_cookie("driver_access_token", token, httponly=True, secure=True, samesite="none",
+                        max_age=DRIVER_TOKEN_DAYS * 86400, path="/")
+    await db.drivers.update_one({"id": drv["id"]}, {"$set": {"last_app_login": now_iso()}})
+    return {"token": token, "driver": {"id": drv["id"], "name": drv.get("name"), "phone": drv.get("mobile"),
+                                       "driver_code": drv.get("driver_code"), "city": drv.get("city")}}
+
+
+@api.post("/driver/auth/logout")
+async def driver_logout(response: Response):
+    response.delete_cookie("driver_access_token", path="/")
+    return {"ok": True}
+
+
+# ---------- driver app: rent account (computed from MyVolt rent rules) ----------
+def _driver_day_due(drv, ds):
+    adj = sum(a["amount"] for a in drv.get("adjustments") or [] if a["date"] == ds)
+    return max(float(drv.get("daily_rent") or 0) - adj, 0.0)
+
+
+async def _driver_account(drv):
+    today = today_ist()
+    join = drv.get("joining_date")
+    start = date.fromisoformat(rent_start(drv)) if (drv.get("rent_start_date") or drv.get("handover_date") or join) else today
+    if join:
+        start = max(start, date.fromisoformat(join) + timedelta(days=1))
+    free = set(drv.get("rent_free_dates") or [])
+    if join:
+        free.add(join)
+    txns = await db.transactions.find({"driver_id": drv["id"], "status": {"$ne": "rejected"}},
+                                      {"_id": 0, "payment_date": 1, "amount": 1}).to_list(20000)
+    paid = {}
+    for t in txns:
+        paid[t["payment_date"]] = paid.get(t["payment_date"], 0.0) + float(t["amount"])
+    unpaid, by_date, applied = [], {}, 0.0
+    d = start
+    while d <= today:
+        ds = d.isoformat()
+        if ds not in free:
+            due_d = _driver_day_due(drv, ds)
+            applied += min(paid.get(ds, 0.0), due_d)
+            short = round(due_d - paid.get(ds, 0.0), 2)
+            if short > 0:
+                unpaid.append(ds)
+                by_date[ds] = short
+        d += timedelta(days=1)
+    # Extra paid on any day (overpayment, or paid on a rent-free day) clears the oldest unpaid days first,
+    # same as MyVolt's summary (expected - submitted).
+    lo = min(join or start.isoformat(), start.isoformat())
+    credit = round(sum(v for k, v in paid.items() if lo <= k <= today.isoformat()) - applied, 2)
+    for ds in list(unpaid):
+        if credit <= 0:
+            break
+        take = min(credit, by_date[ds])
+        by_date[ds] = round(by_date[ds] - take, 2)
+        credit = round(credit - take, 2)
+        if by_date[ds] <= 0:
+            del by_date[ds]
+            unpaid.remove(ds)
+    due = round(sum(by_date.values()), 2)
+    overdue_days = sum(1 for x in unpaid if x < today.isoformat())
+    return {"status": "overdue" if overdue_days else "active", "rent_due": due, "outstanding_amount": due,
+            "extra_km_due": 0, "unpaid_dates": unpaid, "rent_by_date": by_date, "overdue_days": overdue_days,
+            "today_date": today.isoformat(), "pending_catchup": False, "rent_popup_locked": False,
+            "today_paid": today.isoformat() not in by_date}
+
+
+def _driver_rental(drv):
+    if not drv.get("daily_rent"):
+        return None
+    return {"package_name": drv.get("app_package_name") or "Daily Rent", "package_category": "rental",
+            "daily_rate": drv.get("daily_rent"), "start_date": rent_start(drv), "start": rent_start(drv),
+            "vehicle_reg": drv.get("vehicle_no"), "vehicle_number": drv.get("vehicle_no"),
+            "vehicle_id": drv.get("current_vehicle_id")}
+
+
+@api.get("/driver/me")
+async def driver_me(drv=Depends(current_app_driver)):
+    today = today_ist().isoformat()
+    suspended = drv.get("status") == "Suspended"
+    return {
+        "driver": {
+            "id": drv["id"], "driver_code": drv.get("driver_code"), "name": drv.get("name"),
+            "phone": drv.get("mobile"), "city": drv.get("city"), "status": drv.get("status"),
+            "kyc_status": drv.get("kyc_status") or drv.get("app_kyc_status"),
+            "kyc_approved_seen": drv.get("kyc_approved_seen", False),
+            "kyc_snoozed_until": drv.get("kyc_snoozed_until"),
+            "vehicle_id": drv.get("current_vehicle_id"),
+            "vehicle_reg": drv.get("vehicle_no"), "vehicle_plate": drv.get("vehicle_no"),
+            "package_name": drv.get("app_package_name") or "Daily Rent", "package_rate": drv.get("daily_rent"),
+            "joining_date": drv.get("joining_date"), "rent_start_date": drv.get("rent_start_date"),
+            "paid_leaves": drv.get("paid_leaves", []),
+        },
+        "rental": _driver_rental(drv), "account": await _driver_account(drv), "deposit": None,
+        "admin_block": "temporary" if suspended else None,
+        "admin_block_reason": (drv.get("app_admin_block_reason") or "Suspended by Route39") if suspended else None,
+        "week_off": None, "package_due": None,
+        "checked_in_today": bool((drv.get("app_checkins") or {}).get(today, {}).get("check_in")),
+    }
+
+
+# ---------- driver app: payments (screenshot -> Pending in Accounts Verification) ----------
+from fastapi import Form as _Form
+
+DRIVER_APP_USER = {"id": "driver-app", "name": "Driver App", "role": "system"}
+_STATUS_FOR_APP = {"pending": "submitted", "approved": "paid", "rejected": "rejected"}
+
+
+class DriverOrderIn(BaseModel):
+    kind: str = "daily"
+    reading: Optional[int] = None
+    next_payment_date: Optional[str] = None
+
+
+@api.get("/driver/payments")
+async def driver_payments(drv=Depends(current_app_driver)):
+    txns = await db.transactions.find({"driver_id": drv["id"]}, P).sort("submitted_at", -1).to_list(2000)
+    groups = {}
+    for t in txns:
+        g = groups.setdefault(t.get("app_payment_id") or t["id"], {
+            "id": t.get("app_payment_id") or t["id"], "kind": "daily", "amount": 0.0, "covers_dates": [],
+            "created_at": t.get("submitted_at"), "paid_at": t.get("submitted_at"),
+            "payment_method": t.get("method"), "transaction_id": t.get("utr"), "receipt_txn_id": t.get("utr"),
+            "payment_status": _STATUS_FOR_APP.get(t["status"], t["status"]),
+            "rejection_reason": t.get("rejection_reason"), "daily_rate": drv.get("daily_rent")})
+        g["amount"] = round(g["amount"] + float(t["amount"]), 2)
+        g["covers_dates"].append(t["payment_date"])
+        if t["status"] == "pending":
+            g["payment_status"] = "submitted"
+    out = list(groups.values())
+    for g in out:
+        g["covers_dates"].sort()
+        g["base_rent"], g["extra_charge"] = g["amount"], 0
+    return out
+
+
+@api.post("/driver/payments/create-order")
+async def driver_create_order(body: DriverOrderIn, drv=Depends(current_app_driver)):
+    if body.kind not in ("daily", "outstanding"):
+        raise HTTPException(400, "This payment type is not available. Please pay your daily rent.")
+    acct = await _driver_account(drv)
+    if acct["rent_due"] <= 0:
+        raise HTTPException(400, "No rent due right now.")
+    oid_ = f"DPO-{uuid.uuid4().hex[:10].upper()}"
+    await db.driver_payment_orders.insert_one({
+        "id": oid_, "driver_id": drv["id"], "kind": body.kind, "amount": acct["rent_due"],
+        "covers_dates": acct["unpaid_dates"], "covers_amounts": acct["rent_by_date"],
+        "status": "awaiting_receipt", "created_at": now_iso()})
+    return {"payment_id": oid_, "gateway": "receipt", "kind": body.kind, "amount": acct["rent_due"],
+            "covers_dates": acct["unpaid_dates"]}
+
+
+@api.post("/driver/payments/receipt")
+async def driver_payment_receipt(payment_id: str = _Form(...), image: UploadFile = File(...),
+                                 drv=Depends(current_app_driver)):
+    order = await db.driver_payment_orders.find_one({"id": payment_id, "driver_id": drv["id"]}, P)
+    if not order:
+        raise HTTPException(404, "Payment not found")
+    if order["status"] != "awaiting_receipt":
+        raise HTTPException(400, "This payment is already submitted")
+    ext = (image.filename or "").rsplit(".", 1)[-1].lower() if "." in (image.filename or "") else "jpg"
+    ext = "jpg" if ext == "jpeg" else ext
+    if ext not in ALLOWED:
+        raise HTTPException(400, "Please upload the payment screenshot as a JPG or PNG image.")
+    data = await image.read()
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Screenshot must be under 10 MB")
+    # Days paid since the order was created (e.g. by staff) are not charged twice.
+    acct = await _driver_account(drv)
+    dates = [d for d in order["covers_dates"] if d in acct["rent_by_date"]]
+    if not dates:
+        await db.driver_payment_orders.update_one({"id": payment_id}, {"$set": {"status": "cancelled"}})
+        raise HTTPException(400, "These days are already paid. Please refresh the app.")
+    try:
+        scan = await asyncio.wait_for(asyncio.to_thread(_scan_payment_screenshot_sync, data, ext), timeout=60)
+    except Exception as e:
+        logger.warning("Driver receipt scan failed: %s", e)
+        scan = {"is_payment": None, "utr": None}
+    utr = (scan.get("utr") or "").strip().upper()
+    if utr:
+        dup = await db.transactions.find_one({"utr": utr, "status": {"$ne": "rejected"}}, P)
+        if dup:
+            raise HTTPException(409, "This payment screenshot was already submitted. Please upload the new payment.")
+    path = f"{APP_NAME}/screenshots/driver-app/{drv['id']}/{uuid.uuid4()}.{ext}"
+    res = await asyncio.to_thread(storage.put_object, path, data, ALLOWED[ext])
+    fid = str(uuid.uuid4())
+    await db.files.insert_one({"id": fid, "storage_path": res["path"], "content_type": ALLOWED[ext],
+                               "original_filename": image.filename, "size": len(data), "uploaded_by": "driver-app",
+                               "owner_driver_id": drv["id"], "is_deleted": False, "created_at": now_iso()})
+    utr_store = utr or f"APP-{payment_id[-8:]}"
+    veh = await db.vehicles.find_one({"vehicle_id": drv.get("current_vehicle_id")}, P) if drv.get("current_vehicle_id") else None
+    total = 0.0
+    for d in dates:
+        amt = float(acct["rent_by_date"][d])
+        prior = await db.transactions.find_one({"driver_id": drv["id"], "payment_date": d, "status": {"$ne": "rejected"}})
+        txn = {
+            "id": f"TXN-APP-{uuid.uuid4().hex[:6].upper()}", "driver_id": drv["id"], "driver_name": drv["name"],
+            "driver_code": drv.get("driver_code"), "vehicle_id": veh["vehicle_id"] if veh else None,
+            "vehicle_no": veh["reg_no"] if veh else drv.get("vehicle_no"), "city": drv["city"], "payment_date": d,
+            "amount": amt, "utr": utr_store, "method": "UPI", "file_id": fid,
+            "remarks": "Paid from driver app" + ("" if utr else " - UTR not read from screenshot, please check"),
+            "is_split": bool(prior), "status": "pending", "source": "driver_app", "app_payment_id": payment_id,
+            "submitted_by": DRIVER_APP_USER["id"], "submitted_by_name": DRIVER_APP_USER["name"], "submitted_at": now_iso(),
+            "verified_by": None, "verified_by_name": None, "verified_at": None, "rejection_reason": None,
+            "rejection_history": [], "corrections": [], "version": 1,
+        }
+        await db.transactions.insert_one(txn)
+        await audit(DRIVER_APP_USER, "Transaction submitted", "transaction", txn["id"], None,
+                    f"{inr(amt)} · UTR {utr_store} · driver app", drv["id"])
+        total += amt
+    await db.driver_payment_orders.update_one({"id": payment_id}, {"$set": {
+        "status": "submitted", "file_id": fid, "utr": utr_store, "submitted_at": now_iso(), "paid_dates": dates}})
+    return {"ok": True, "receipt_url": f"/api/driver/files/{fid}", "transaction_id": payment_id,
+            "scanned_txn_id": utr or None, "paid_at": now_iso(), "kind": order["kind"], "amount": round(total, 2),
+            "status": "pending_verification", "account": await _driver_account(drv)}
+
+
+@api.get("/driver/files/{fid}")
+async def driver_file(fid: str, drv=Depends(current_app_driver)):
+    rec = await db.files.find_one({"id": fid, "owner_driver_id": drv["id"], "is_deleted": False}, P)
+    if not rec:
+        raise HTTPException(404, "File not found")
+    data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    return Response(content=data, media_type=rec["content_type"])
+# ================== END DRIVER APP ==================
 
 
 app.include_router(api)
