@@ -24,7 +24,8 @@ export default function DriversPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
-  const [city, setCity] = useState("all");
+  const [city, setCity] = useState(() => new URLSearchParams(window.location.search).get("city") || "all");
+  const noVeh = new URLSearchParams(window.location.search).get("vehicle") === "none";
   const [sort, setSort] = useState({ key: "driver_code", dir: "asc" });
 
   const cities = useMemo(() => {
@@ -32,8 +33,8 @@ export default function DriversPage() {
     return [...set].sort();
   }, [rows]);
   const filtered = useMemo(
-    () => rows.filter((d) => (status === "all" || d.status === status) && (city === "all" || d.city === city)),
-    [rows, status, city]
+    () => rows.filter((d) => (status === "all" || d.status === status) && (city === "all" || d.city === city) && (!noVeh || !d.current_vehicle_id)),
+    [rows, status, city, noVeh]
   );
   const sorted = useMemo(() => {
     const list = [...filtered];

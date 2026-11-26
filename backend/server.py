@@ -226,6 +226,10 @@ class DriverIn(BaseModel):
 class DriverCreate(DriverIn):
     driver_code: Optional[str] = None
     current_vehicle_id: Optional[str] = None
+
+
+class DriverUpdate(DriverIn):
+    driver_code: Optional[str] = None
     vehicle_no: Optional[str] = ""
 
 
@@ -661,7 +665,7 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
 
 
 @api.put("/drivers/{did}")
-async def update_driver(did: str, body: DriverIn, user=Depends(require("admin"))):
+async def update_driver(did: str, body: DriverUpdate, user=Depends(require("admin"))):
     old = await get_driver_or_404(did)
     new = body.model_dump()
     new["handover_date"] = new["handover_date"] or new["joining_date"]
@@ -677,6 +681,15 @@ async def update_driver(did: str, body: DriverIn, user=Depends(require("admin"))
         if existing_mob:
             raise HTTPException(409, f"Mobile number {mobile} is already used by driver {existing_mob.get('name')} ({existing_mob.get('driver_code')})")
 
+    code = (new.pop("driver_code", None) or "").strip().upper()
+    if code and code != old.get("driver_code"):
+        if not re.fullmatch(r"[A-Z0-9-]{3,20}", code):
+            raise HTTPException(400, "Driver ID can only have letters, numbers and dashes")
+        clash = await db.drivers.find_one({"driver_code": code, "id": {"$ne": did}})
+        if clash:
+            raise HTTPException(409, f"Driver ID {code} is already used by {clash.get('name')}")
+        new["driver_code"] = code
+        await db.transactions.update_many({"driver_id": did}, {"$set": {"driver_code": code}})
     await db.drivers.update_one({"id": did}, {"$set": new})
     for k, v in new.items():
         if old.get(k) != v:
@@ -2110,6 +2123,38 @@ async def board(day: str = Query("", alias="date"), q: str = "", city: str = "",
                                    [[r.get(k) for k, _ in BOARD_COLS] for r in rows], user)
     return {"date": d.isoformat(), "kpis": kpis, "total": len(rows), "page": page, "page_size": page_size,
             "rows": rows[(page - 1) * page_size: page * page_size]}
+
+
+@api.get("/overview/fleet")
+async def overview_fleet(date: Optional[str] = None, user=Depends(current_user)):
+    day = date or today_ist().isoformat()
+    d0 = type(today_ist()).fromisoformat(day)
+    drivers = await db.drivers.find({"status": "Active"}, {"_id": 0, "id": 1, "city": 1, "status": 1, "daily_rent": 1,
+        "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "current_vehicle_id": 1}).to_list(20000)
+    vehicles = await db.vehicles.find({}, {"_id": 0, "vehicle_id": 1, "city": 1, "rental_status": 1}).to_list(20000)
+    st = {}
+    for t in await db.transactions.find({"payment_date": day}, {"_id": 0, "driver_id": 1, "status": 1}).to_list(100000):
+        st.setdefault(t.get("driver_id"), set()).add(t.get("status"))
+    assigned = {d["current_vehicle_id"] for d in drivers if d.get("current_vehicle_id")}
+    cities = {}
+    def C(n):
+        n = (n or "Other").strip() or "Other"
+        return cities.setdefault(n, {"city": n, "vehicles": 0, "rented": 0, "available": 0, "drivers": 0, "paid": 0,
+            "pending": 0, "unpaid": 0, "drivers_without_vehicle": 0, "vehicles_without_driver": 0})
+    for v in vehicles:
+        c = C(v.get("city")); c["vehicles"] += 1
+        on = v["vehicle_id"] in assigned or v.get("rental_status") == "rented"
+        c["rented" if on else "available"] += 1
+        if v["vehicle_id"] not in assigned: c["vehicles_without_driver"] += 1
+    for d in drivers:
+        c = C(d.get("city")); c["drivers"] += 1
+        if not d.get("current_vehicle_id"): c["drivers_without_vehicle"] += 1
+        if expected_between(d, d0, d0) > 0:
+            s2 = st.get(d["id"], set())
+            c["paid" if "approved" in s2 else "pending" if "pending" in s2 else "unpaid"] += 1
+    rows = sorted(cities.values(), key=lambda x: x["city"])
+    tot = {k: sum(r[k] for r in rows) for k in rows[0] if k != "city"} if rows else {}
+    return {"date": day, "totals": tot, "cities": rows}
 
 
 @api.get("/overview")

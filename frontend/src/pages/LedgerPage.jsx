@@ -18,7 +18,10 @@ const KEY = "ledger_state";
 export default function HistoryPage() {
   const nav = useNavigate();
   const [driver, setDriver] = useState(null);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState(() => {
+    const u = new URLSearchParams(window.location.search);
+    return { ...EMPTY_FILTERS, city: u.get("city") || "all", payment_date: u.get("date") || "", status: u.get("status") || "all" };
+  });
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ key: "submitted_at", dir: "desc" });
   const [page, setPage] = useState(1);

@@ -24,7 +24,7 @@ export const STATUS = {
   approved: { label: "Verified", cls: "st-verified" },
   rejected: { label: "Rejected", cls: "st-rejected" },
   partial: { label: "Partial", cls: "st-partial" },
-  unpaid: { label: "Unpaid", cls: "st-unpaid" },
+  unpaid: { label: "Not paid", cls: "st-unpaid" },
   inactive: { label: "Inactive", cls: "st-inactive" },
   not_started: { label: "Not started", cls: "st-not_started" },
   rent_free: { label: "Rent free", cls: "st-rent_free" },
