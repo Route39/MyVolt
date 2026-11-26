@@ -9,6 +9,7 @@ import { PaymentDialog } from "@/components/PaymentDialog";
 import { DayDialog } from "@/components/DayDialog";
 import { TransactionsTable, HISTORY_COLS } from "@/components/TransactionsTable";
 import { VehicleAssignDialog, AssignmentHistory } from "@/components/Vehicles";
+import { DriverFormDialog } from "@/components/DriverDialogs";
 import { useUser } from "@/context/UserContext";
 import { PageHeader } from "@/components/kit";
 import { api, errMsg } from "@/lib/api";
@@ -54,6 +55,7 @@ export default function CalendarPage() {
   const [entry, setEntry] = useState(null);
   const [dayOpen, setDayOpen] = useState(null);
   const [changeVehicle, setChangeVehicle] = useState(false);
+  const [editDriver, setEditDriver] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const monthKey = `${ym.y}-${String(ym.m + 1).padStart(2, "0")}`;
@@ -82,9 +84,19 @@ export default function CalendarPage() {
   const go = (id, month = monthKey) => setParams({ driver: id, month });
   const onDayClick = (day) => {
     setSelected(day.date);
-    if (day.txns.length) return setDayOpen(day);
+    if (day.txns.length || day.day_status?.no_ride) return setDayOpen(day);
     if (!hasRole("staff", "accounts", "admin")) return toast.info("No payment entered for this date");
     setEntry({ mode: "new", date: day.date });
+  };
+  const onRemoveStatus = async (day) => {
+    try {
+      await api.delete(`/drivers/${driver.id}/day-status/${day.date}`);
+      toast.success("Day status removed");
+      setDayOpen(null);
+      load();
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
   };
   const driver = cal?.driver;
 
@@ -95,7 +107,11 @@ export default function CalendarPage() {
       {!driverId && <QuickPicks onPick={(d) => go(d.id)} />}
       {cal && (
         <div className="grid gap-4 w1200:grid-cols-[300px_1fr] w1440:grid-cols-[340px_1fr] w1920:grid-cols-[380px_1fr] w1200:grid-rows-[auto_1fr]">
-          <DriverCard driver={driver} onChangeVehicle={hasRole("staff", "accounts", "admin") ? () => setChangeVehicle(true) : null} />
+          <DriverCard
+            driver={driver}
+            onChangeVehicle={hasRole("staff", "accounts", "admin") ? () => setChangeVehicle(true) : null}
+            onEdit={hasRole("staff", "accounts", "admin") ? () => setEditDriver(true) : null}
+          />
           <div className="order-last space-y-4 w1200:order-none w1200:col-start-1 w1200:row-start-2">
             <RentSummary title="Monthly financial summary" summary={cal.month_summary} prefix="month" />
             <RentSummary
@@ -111,6 +127,7 @@ export default function CalendarPage() {
           </div>
           <div className="min-w-0 space-y-4 w1200:col-start-2 w1200:row-span-2 w1200:row-start-1">
             <RentCalendar ym={ym} loading={loading} days={cal.days} onDayClick={onDayClick} selectedDate={selected}
+              weekOffsUsed={cal.week_offs_used || 0} weekOffLimit={cal.week_off_limit || 3}
               onMonthChange={(v) => go(driverId, `${v.y}-${String(v.m + 1).padStart(2, "0")}`)} />
             <section>
               <h3 className="mb-2 text-sm font-semibold">Payment history <span className="font-normal text-muted-foreground">· {history.length} transactions</span></h3>
@@ -121,9 +138,11 @@ export default function CalendarPage() {
         </div>
       )}
       <VehicleAssignDialog open={changeVehicle} onOpenChange={setChangeVehicle} driver={driver} onSaved={load} />
+      <DriverFormDialog open={editDriver} onOpenChange={setEditDriver} driver={driver} onSaved={load} />
       <PaymentDialog open={!!entry} onOpenChange={(o) => !o && setEntry(null)} mode={entry?.mode} driver={driver}
-        date={entry?.date} txn={entry?.txn} onDone={load} />
+        date={entry?.date} txn={entry?.txn} weekOffsUsed={cal?.week_offs_used || 0} weekOffLimit={cal?.week_off_limit || 3} onDone={load} />
       <DayDialog open={!!dayOpen} onOpenChange={(o) => !o && setDayOpen(null)} day={dayOpen}
+        onRemoveStatus={onRemoveStatus}
         onAddSplit={() => { setEntry({ mode: "split", date: dayOpen.date }); setDayOpen(null); }}
         onResubmit={async (t) => {
           const { data } = await api.get(`/transactions/${t.id}`);

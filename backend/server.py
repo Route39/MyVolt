@@ -226,11 +226,20 @@ class DriverIn(BaseModel):
 class DriverCreate(DriverIn):
     driver_code: Optional[str] = None
     current_vehicle_id: Optional[str] = None
+    vehicle_no: Optional[str] = ""
 
 
 class DriverUpdate(DriverIn):
     driver_code: Optional[str] = None
-    vehicle_no: Optional[str] = ""
+    vehicle_no: Optional[str] = None
+
+
+class DayStatusIn(BaseModel):
+    date: str
+    type: Literal["week_off", "ev_issue", "other_issue"]
+    replacement_given: Optional[bool] = None
+    replacement_vehicle_id: Optional[str] = None
+    reason: str = ""
 
 
 class VehicleIn(BaseModel):
@@ -627,7 +636,7 @@ async def next_driver_id():
 
 
 @api.post("/drivers")
-async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
+async def create_driver(body: DriverCreate, user=Depends(require("staff", "accounts", "admin"))):
     new_driver_id = await next_driver_id()
     data = body.model_dump(exclude={"driver_code", "current_vehicle_id"})
     data["handover_date"] = data["handover_date"] or data["joining_date"]
@@ -665,11 +674,19 @@ async def create_driver(body: DriverCreate, user=Depends(require("admin"))):
 
 
 @api.put("/drivers/{did}")
-async def update_driver(did: str, body: DriverUpdate, user=Depends(require("admin"))):
+async def update_driver(did: str, body: DriverUpdate, user=Depends(require("staff", "accounts", "admin"))):
     old = await get_driver_or_404(did)
     new = body.model_dump()
+    if new.get("vehicle_no") is None:
+        new.pop("vehicle_no", None)
     new["handover_date"] = new["handover_date"] or new["joining_date"]
     new["rent_start_date"] = new["rent_start_date"] or new["handover_date"]
+    for dk in ("joining_date", "handover_date", "rent_start_date"):
+        if new.get(dk):
+            try:
+                date.fromisoformat(new[dk])
+            except ValueError:
+                raise HTTPException(400, "Invalid date format; expected YYYY-MM-DD")
 
     # Strictly enforce 100% unique mobile number on update
     if "mobile" in new:
@@ -720,6 +737,24 @@ CITY_PREFIX = {"bengaluru": "BLR", "bangalore": "BLR", "chennai": "CHN", "coimba
 
 def city_prefix(city):
     return CITY_PREFIX.get(city.strip().lower()) or (re.sub(r"[^A-Z]", "", city.upper())[:3] or "GEN")
+
+
+def normalize_city_name(city: Optional[str]) -> str:
+    c = (city or "").strip()
+    if not c:
+        return "Other"
+    cl = c.lower()
+    if cl in ("bengaluru", "bangalore", "blr"):
+        return "Bangalore"
+    if cl in ("tirupur", "tiruppur"):
+        return "Tiruppur"
+    if cl in ("chennai", "madras", "chn"):
+        return "Chennai"
+    if cl in ("coimbatore", "cbe"):
+        return "Coimbatore"
+    if cl in ("hyderabad", "hyd"):
+        return "Hyderabad"
+    return c
 
 
 def city_query_filter(city: str):
@@ -825,7 +860,7 @@ async def assign_vehicle(drv, vehicle_id, user, reason):
 
 
 @api.post("/drivers/{did}/assign-vehicle")
-async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "admin"))):
+async def assign_vehicle_route(did: str, body: AssignIn, user=Depends(require("staff", "accounts", "admin"))):
     drv = await get_driver_or_404(did)
     await assign_vehicle(drv, (body.vehicle_id or "").strip().upper() or None, user, body.reason)
     return await get_driver(did, user)
@@ -907,7 +942,7 @@ async def list_vehicles(q: str = "", city: str = "", status: str = "", assignmen
 
 
 @api.post("/vehicles")
-async def create_vehicle(body: VehicleIn, user=Depends(require("admin"))):
+async def create_vehicle(body: VehicleIn, user=Depends(require("staff", "accounts", "admin"))):
     doc = await insert_vehicle(
         body.reg_no,
         body.city,
@@ -924,7 +959,7 @@ async def create_vehicle(body: VehicleIn, user=Depends(require("admin"))):
 
 
 @api.put("/vehicles/{vid}")
-async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("admin"))):
+async def update_vehicle(vid: str, body: VehicleIn, user=Depends(require("staff", "accounts", "admin"))):
     old = await db.vehicles.find_one({"vehicle_id": vid}, P)
     if not old:
         raise HTTPException(404, "Vehicle not found")
@@ -972,7 +1007,7 @@ async def delete_vehicle(vid: str, user=Depends(require("admin"))):
 
 
 @api.get("/import/template")
-async def import_template(mode: str = "drivers_and_vehicles", user=Depends(require("admin"))):
+async def import_template(mode: str = "drivers_and_vehicles", user=Depends(require("staff", "accounts", "admin"))):
     wb = Workbook()
     ws = wb.active
     if mode == "drivers":
@@ -1009,7 +1044,7 @@ async def import_template(mode: str = "drivers_and_vehicles", user=Depends(requi
 
 
 @api.post("/import/parse")
-async def import_parse(file: UploadFile = File(...), user=Depends(require("admin"))):
+async def import_parse(file: UploadFile = File(...), user=Depends(require("staff", "accounts", "admin"))):
     filename = file.filename or "upload.pdf"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ("pdf", "xlsx", "xlsm", "csv", "png", "jpg", "jpeg", "webp"):
@@ -1027,7 +1062,7 @@ async def import_parse(file: UploadFile = File(...), user=Depends(require("admin
 
 
 @api.post("/import/commit")
-async def import_commit(body: ImportCommitIn, user=Depends(require("admin"))):
+async def import_commit(body: ImportCommitIn, user=Depends(require("staff", "accounts", "admin"))):
     today_str = today_ist().isoformat()
     ts = now_iso()
 
@@ -1403,7 +1438,7 @@ async def migrate_ids():
 
 
 @api.post("/drivers/{did}/adjustments")
-async def add_adjustment(did: str, body: AdjustmentIn, user=Depends(require("admin"))):
+async def add_adjustment(did: str, body: AdjustmentIn, user=Depends(require("staff", "accounts", "admin"))):
     await get_driver_or_404(did)
     adj = {"id": str(uuid.uuid4()), **body.model_dump(), "by": user["name"], "at": now_iso()}
     await db.drivers.update_one({"id": did}, {"$push": {"adjustments": adj}})
@@ -1425,6 +1460,9 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
     rs, today = rent_start(drv), today_ist()
     free = set(drv.get("rent_free_dates") or [])
     adj_dates = {a["date"] for a in drv.get("adjustments") or []}
+    day_statuses = drv.get("day_statuses") or {}
+    ym_prefix = f"{year:04d}-{month:02d}"
+    week_offs_used = sum(1 for k, v in day_statuses.items() if k.startswith(ym_prefix) and v.get("type") == "week_off")
 
     joining_date_str = drv.get("joining_date")
     joining_dt = date.fromisoformat(joining_date_str) if joining_date_str else None
@@ -1440,9 +1478,10 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
         day_txns = by_date.get(ds, [])
         active = [t for t in day_txns if t["status"] != "rejected"]
         approved = sum(t["amount"] for t in active if t["status"] == "approved")
+        ds_info = day_statuses.get(ds)
 
         if is_joining:
-            # Joining date: NO rent charged, displays green
+            # Joining date: NO rent charged, displays gray
             status = "joining" if not active else ("verified" if approved else "pending")
         elif any(t["status"] == "pending" for t in active):
             status = "pending"
@@ -1450,11 +1489,13 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
             status = "verified" if approved >= drv["daily_rent"] else "partial"
         elif day_txns:
             status = "rejected"
+        elif ds_info and ds_info.get("no_ride"):
+            status = ds_info["type"]
         else:
             status = "none"
 
         disabled, reason = False, None
-        if ds < rs:
+        if ds < rs and not is_joining:
             disabled, reason = True, "Before rent start date"
         elif d > today and not settings["allow_future_dates"] and not day_txns:
             disabled, reason = True, "Future date"
@@ -1462,6 +1503,7 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
             "date": ds, "status": status, "disabled": disabled, "reason": reason,
             "is_joining": is_joining,
             "rent_free": is_joining or (ds in free), "adjusted": ds in adj_dates,
+            "day_status": ds_info,
             "amount": sum(t["amount"] for t in active) if active else (day_txns[-1]["amount"] if day_txns else 0),
             "txns": [{k: t.get(k) for k in ["id", "amount", "status", "utr", "method", "is_split", "submitted_by_name",
                                             "rejection_reason", "submitted_by", "vehicle_id", "vehicle_no"]} for t in day_txns],
@@ -1469,8 +1511,86 @@ async def driver_calendar(did: str, year: int = Query(ge=2000, le=2100), month: 
     await enrich_driver(drv)
     return {"driver": {k: v for k, v in drv.items() if k != "adjustments"}, "settings": settings, "days": days,
             "rent_calc_start": rent_calc_start_str,
+            "week_offs_used": week_offs_used, "week_off_limit": 3,
             "month_summary": summarize(drv, txns, first, last),
             "overall_summary": summarize(drv, txns, rent_calc_start, today)}
+
+
+@api.post("/drivers/{did}/day-status")
+async def mark_driver_day_status(did: str, body: DayStatusIn, user=Depends(require("staff", "accounts", "admin"))):
+    try:
+        date.fromisoformat(body.date)
+    except ValueError:
+        raise HTTPException(400, "Invalid date format; expected YYYY-MM-DD")
+    drv = await get_driver_or_404(did)
+    if drv.get("joining_date") and body.date == drv["joining_date"]:
+        raise HTTPException(400, "Joining date is already rent-free")
+    day_statuses = drv.get("day_statuses") or {}
+    if body.type == "week_off":
+        ym_prefix = body.date[:7]
+        used = sum(1 for k, v in day_statuses.items() if k.startswith(ym_prefix) and v.get("type") == "week_off" and k != body.date)
+        if used >= 3:
+            raise HTTPException(400, "Week off limit reached: maximum 3 week off days are allowed per month.")
+        no_ride = True
+        reason_text = body.reason.strip() or "Week Off"
+    elif body.type == "ev_issue":
+        if body.replacement_given is None:
+            raise HTTPException(400, "Please specify whether a replacement vehicle was given")
+        if body.replacement_given is False:
+            no_ride = True
+            reason_text = body.reason.strip() or "EV issue — no replacement vehicle given (did not ride)"
+        else:
+            no_ride = False
+            reason_text = body.reason.strip() or "EV issue — replacement vehicle given"
+    else:
+        reason_text = body.reason.strip()
+        if len(reason_text) < 2:
+            raise HTTPException(400, "Please enter a brief reason for the issue")
+        no_ride = True
+
+    if no_ride:
+        existing_txn = await db.transactions.find_one({"driver_id": did, "payment_date": body.date, "status": {"$ne": "rejected"}})
+        if existing_txn:
+            raise HTTPException(400, "A payment is already recorded for this date")
+
+    entry = {
+        "type": body.type,
+        "replacement_given": body.replacement_given,
+        "replacement_vehicle_id": body.replacement_vehicle_id,
+        "reason": reason_text,
+        "no_ride": no_ride,
+        "marked_by": user["id"],
+        "marked_by_name": user["name"],
+        "marked_at": now_iso(),
+    }
+    if no_ride:
+        await db.drivers.update_one({"id": did}, {"$set": {f"day_statuses.{body.date}": entry}, "$addToSet": {"rent_free_dates": body.date}})
+    else:
+        await db.drivers.update_one({"id": did}, {"$set": {f"day_statuses.{body.date}": entry}, "$pull": {"rent_free_dates": body.date}})
+
+    await audit(user, f"Calendar day marked ({body.type})", "driver", did, None, f"{body.date} · {reason_text}", did)
+    updated_statuses = {**day_statuses, body.date: entry}
+    ym_prefix = body.date[:7]
+    week_offs_used = sum(1 for k, v in updated_statuses.items() if k.startswith(ym_prefix) and v.get("type") == "week_off")
+    return {"ok": True, "date": body.date, "day_status": entry, "week_offs_used": week_offs_used, "week_off_limit": 3}
+
+
+@api.delete("/drivers/{did}/day-status/{ds}")
+async def delete_driver_day_status(did: str, ds: str, user=Depends(require("staff", "accounts", "admin"))):
+    try:
+        date.fromisoformat(ds)
+    except ValueError:
+        raise HTTPException(400, "Invalid date format; expected YYYY-MM-DD")
+    drv = await get_driver_or_404(did)
+    existing = (drv.get("day_statuses") or {}).get(ds)
+    if not existing:
+        raise HTTPException(404, "No status marked for this date")
+    upd = {"$unset": {f"day_statuses.{ds}": ""}}
+    if existing.get("no_ride"):
+        upd["$pull"] = {"rent_free_dates": ds}
+    await db.drivers.update_one({"id": did}, upd)
+    await audit(user, "Calendar day status removed", "driver", did, f"{ds} · {existing.get('type')}", None, did)
+    return {"ok": True, "date": ds}
 
 
 # ---------- files ----------
@@ -1478,7 +1598,7 @@ ALLOWED = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp"
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user=Depends(require("staff", "admin"))):
+async def upload(file: UploadFile = File(...), user=Depends(require("staff", "accounts", "admin"))):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in ALLOWED:
         raise HTTPException(400, "Only JPG, JPEG, PNG or WEBP images are allowed")
@@ -1594,7 +1714,7 @@ class ScanIn(BaseModel):
 
 
 @api.post("/upload/scan")
-async def scan_uploaded_screenshot(body: ScanIn, user=Depends(require("staff", "admin"))):
+async def scan_uploaded_screenshot(body: ScanIn, user=Depends(require("staff", "accounts", "admin"))):
     rec = await db.files.find_one({"id": body.file_id, "is_deleted": False}, P)
     if not rec:
         raise HTTPException(400, "Screenshot not found, please upload again")
@@ -1630,7 +1750,7 @@ async def validate_payment(method, utr, file_id, exclude_id=None):
 
 
 @api.post("/transactions")
-async def create_txn(body: TxnIn, user=Depends(require("staff", "admin"))):
+async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "admin"))):
     drv = await get_driver_or_404(body.driver_id)
     settings = await get_settings()
     try:
@@ -2052,7 +2172,8 @@ def day_row(drv, txns, d: date):
     elif not started:
         st = "not_started"
     elif free:
-        st = "rent_free"
+        ds_info = (drv.get("day_statuses") or {}).get(ds)
+        st = ds_info["type"] if (ds_info and ds_info.get("no_ride")) else "rent_free"
     elif any(t["status"] == "pending" for t in act):
         st = "pending"
     elif verified:
@@ -2128,17 +2249,27 @@ async def board(day: str = Query("", alias="date"), q: str = "", city: str = "",
 @api.get("/overview/fleet")
 async def overview_fleet(date: Optional[str] = None, user=Depends(current_user)):
     day = date or today_ist().isoformat()
-    d0 = type(today_ist()).fromisoformat(day)
+    try:
+        d0 = type(today_ist()).fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "Invalid date format; expected YYYY-MM-DD")
     drivers = await db.drivers.find({"status": "Active"}, {"_id": 0, "id": 1, "city": 1, "status": 1, "daily_rent": 1,
         "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "current_vehicle_id": 1}).to_list(20000)
     vehicles = await db.vehicles.find({}, {"_id": 0, "vehicle_id": 1, "city": 1, "rental_status": 1}).to_list(20000)
-    st = {}
-    for t in await db.transactions.find({"payment_date": day}, {"_id": 0, "driver_id": 1, "status": 1}).to_list(100000):
-        st.setdefault(t.get("driver_id"), set()).add(t.get("status"))
+    approved_amt = {}
+    has_pending = set()
+    for t in await db.transactions.find({"payment_date": day}, {"_id": 0, "driver_id": 1, "status": 1, "amount": 1}).to_list(100000):
+        did = t.get("driver_id")
+        if not did:
+            continue
+        if t.get("status") == "approved":
+            approved_amt[did] = approved_amt.get(did, 0.0) + float(t.get("amount") or 0)
+        elif t.get("status") == "pending":
+            has_pending.add(did)
     assigned = {d["current_vehicle_id"] for d in drivers if d.get("current_vehicle_id")}
     cities = {}
     def C(n):
-        n = (n or "Other").strip() or "Other"
+        n = normalize_city_name(n)
         return cities.setdefault(n, {"city": n, "vehicles": 0, "rented": 0, "available": 0, "drivers": 0, "paid": 0,
             "pending": 0, "unpaid": 0, "drivers_without_vehicle": 0, "vehicles_without_driver": 0})
     for v in vehicles:
@@ -2149,9 +2280,14 @@ async def overview_fleet(date: Optional[str] = None, user=Depends(current_user))
     for d in drivers:
         c = C(d.get("city")); c["drivers"] += 1
         if not d.get("current_vehicle_id"): c["drivers_without_vehicle"] += 1
-        if expected_between(d, d0, d0) > 0:
-            s2 = st.get(d["id"], set())
-            c["paid" if "approved" in s2 else "pending" if "pending" in s2 else "unpaid"] += 1
+        exp = expected_between(d, d0, d0)
+        if exp > 0:
+            if approved_amt.get(d["id"], 0.0) >= exp - 0.01:
+                c["paid"] += 1
+            elif d["id"] in has_pending:
+                c["pending"] += 1
+            else:
+                c["unpaid"] += 1
     rows = sorted(cities.values(), key=lambda x: x["city"])
     tot = {k: sum(r[k] for r in rows) for k in rows[0] if k != "city"} if rows else {}
     return {"date": day, "totals": tot, "cities": rows}
@@ -2520,6 +2656,8 @@ async def driver_payment_receipt(payment_id: str = _Form(...), image: UploadFile
     except Exception as e:
         logger.warning("Driver receipt scan failed: %s", e)
         scan = {"is_payment": None, "utr": None}
+    if scan.get("is_payment") is False:
+        raise HTTPException(400, "This image does not look like a payment receipt. Please upload a valid UPI payment screenshot.")
     utr = (scan.get("utr") or "").strip().upper()
     if utr:
         dup = await db.transactions.find_one({"utr": utr, "status": {"$ne": "rejected"}}, P)

@@ -8,20 +8,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, errMsg } from "@/lib/api";
+import { useUser } from "@/context/UserContext";
 import { VehicleSelect, useVehicles } from "@/components/Vehicles";
 import { fmtDate, fmtDateTime, inr, FLEET_CITIES, normalizeCity } from "@/lib/format";
 
-const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", daily_rent: "", driver_code: "", status: "Active" };
+const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", driver_code: "", status: "Active" };
 
 const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</Label>{children}</div>;
 
 export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
+  const { hasRole } = useUser();
+  const isAdmin = hasRole("admin");
   const [f, setF] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (open) {
+      const today = new Date().toISOString().slice(0, 10);
       setF(
         driver
           ? {
@@ -29,16 +33,29 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               mobile: driver.mobile || "",
               city: driver.city || "Bangalore",
               joining_date: driver.joining_date || "",
+              handover_date: driver.handover_date || driver.joining_date || "",
+              rent_start_date: driver.rent_start_date || driver.handover_date || driver.joining_date || "",
               daily_rent: driver.daily_rent !== undefined && driver.daily_rent !== null ? String(driver.daily_rent) : "",
               driver_code: driver.driver_code || "",
               status: driver.status || "Active",
             }
-          : { ...EMPTY, joining_date: new Date().toISOString().slice(0, 10) }
+          : { ...EMPTY, joining_date: today, handover_date: today, rent_start_date: today }
       );
       setConfirmDelete(false);
     }
   }, [open, driver]);
-  const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
+  const set = (k) => (e) => setF((prev) => ({ ...prev, [k]: e?.target ? e.target.value : e }));
+  const onJoiningChange = (e) => {
+    const val = e.target.value;
+    setF((prev) => {
+      const next = { ...prev, joining_date: val };
+      if (!prev.handover_date || prev.handover_date === prev.joining_date) next.handover_date = val;
+      if (!prev.rent_start_date || prev.rent_start_date === prev.joining_date || prev.rent_start_date === prev.handover_date) {
+        next.rent_start_date = val;
+      }
+      return next;
+    });
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -48,6 +65,8 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
       mobile: f.mobile.trim(),
       city: f.city,
       joining_date: f.joining_date || null,
+      handover_date: f.handover_date || f.joining_date || null,
+      rent_start_date: f.rent_start_date || f.handover_date || f.joining_date || null,
       daily_rent: Number(f.daily_rent) || 0,
       status: f.status || "Active",
     };
@@ -88,7 +107,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                 <Input
                   value={f.driver_code}
                   onChange={set("driver_code")}
-                  placeholder="e.g. R39D-TUP001 (auto if empty)"
+                  placeholder="e.g. BLR-D-001 (auto if empty)"
                   className="font-mono"
                   data-testid="driver-form-code"
                 />
@@ -123,7 +142,13 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               </Select>
             </F>
             <F label="JOINING DATE">
-              <Input type="date" required value={f.joining_date} onChange={set("joining_date")} data-testid="driver-form-joining" />
+              <Input type="date" required value={f.joining_date} onChange={onJoiningChange} data-testid="driver-form-joining" />
+            </F>
+            <F label="VEHICLE HANDOVER DATE">
+              <Input type="date" value={f.handover_date} onChange={set("handover_date")} data-testid="driver-form-handover" />
+            </F>
+            <F label="RENT START DATE">
+              <Input type="date" value={f.rent_start_date} onChange={set("rent_start_date")} data-testid="driver-form-rent-start" />
             </F>
             <F label="RENT">
               <Input
@@ -136,9 +161,21 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                 data-testid="driver-form-rent"
               />
             </F>
+            <F label="STATUS">
+              <Select value={f.status} onValueChange={set("status")}>
+                <SelectTrigger data-testid="driver-form-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Suspended">Suspended</SelectItem>
+                  <SelectItem value="Inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </F>
           </div>
           <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between pt-2">
-            {driver ? (
+            {driver && isAdmin ? (
               <Button
                 type="button"
                 variant="ghost"

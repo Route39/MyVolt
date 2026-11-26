@@ -1,23 +1,48 @@
 import { useNavigate } from "react-router-dom";
-import { Plus, RotateCcw, ExternalLink } from "lucide-react";
+import { Plus, RotateCcw, ExternalLink, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/StatusPill";
 import { useUser } from "@/context/UserContext";
 import { fmtDate, inr } from "@/lib/format";
 
-export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit }) => {
+export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit, onRemoveStatus }) => {
   const nav = useNavigate();
   const { user, hasRole } = useUser();
   if (!day) return null;
   const canSubmit = hasRole("staff", "accounts", "admin");
+  const ds = day.day_status;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] w-[calc(100%-24px)] overflow-y-auto sm:max-w-[520px]" data-testid="day-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base">Payments on {fmtDate(day.date)}</DialogTitle>
-          <DialogDescription>{day.txns.length} payment{day.txns.length !== 1 ? "s" : ""} recorded for this date</DialogDescription>
+          <DialogTitle className="text-base">{day.txns.length ? `Payments on ${fmtDate(day.date)}` : `Day Status · ${fmtDate(day.date)}`}</DialogTitle>
+          <DialogDescription>
+            {day.txns.length ? `${day.txns.length} payment${day.txns.length !== 1 ? "s" : ""} recorded for this date` : "Closed without rent"}
+          </DialogDescription>
         </DialogHeader>
+        {ds && (
+          <div className="rounded-md border p-3" data-testid="day-status-summary">
+            <div className="flex items-center justify-between gap-2">
+              <StatusPill status={ds.type} testId="day-status-pill" />
+              {ds.no_ride && <span className="text-xs font-medium text-muted-foreground">₹0 rent (No ride)</span>}
+            </div>
+            {ds.type === "ev_issue" && (
+              <div className="mt-1.5 text-xs text-muted-foreground">
+                Replacement vehicle: <b>{ds.replacement_given ? `Yes${ds.replacement_vehicle_id ? ` (${ds.replacement_vehicle_id})` : ""}` : "No (Did not ride)"}</b>
+              </div>
+            )}
+            <div className="mt-1 text-sm">{ds.reason}</div>
+            {ds.marked_by_name && <div className="mt-1 text-xs text-muted-foreground">Marked by {ds.marked_by_name}</div>}
+            {canSubmit && !day.txns.length && onRemoveStatus && (
+              <div className="mt-3">
+                <Button size="sm" variant="outline" onClick={() => onRemoveStatus(day)} data-testid="day-remove-status-button">
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />Remove status
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           {day.txns.map((t) => (
             <div key={t.id} className="rounded-md border p-3" data-testid={`day-txn-${t.id}`}>
@@ -43,7 +68,7 @@ export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit }) =
             </div>
           ))}
         </div>
-        {canSubmit && (
+        {canSubmit && !ds?.no_ride && (
           <Button variant="outline" className="w-full sm:w-auto" onClick={onAddSplit} data-testid="day-add-split-button">
             <Plus className="mr-1.5 h-4 w-4" />Add split payment for this date
           </Button>

@@ -37,7 +37,7 @@ export default function FleetDashboard() {
       <div className="flex flex-wrap items-center gap-2">
         <button className={chip(date === today)} onClick={() => setDate(today)}>Today</button>
         <button className={chip(date === yest)} onClick={() => setDate(yest)}>Yesterday</button>
-        <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className="rounded-md border bg-card px-2 py-1 text-sm" />
+        <input id="fleet-dashboard-date" name="fleet_date" aria-label="Select date" type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} className="rounded-md border bg-card px-2 py-1 text-sm" />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Card label="Total vehicles" value={t.vehicles} Icon={Car} onClick={() => go("/vehicles")} tint="bg-red-50 text-red-500" />
@@ -51,8 +51,8 @@ export default function FleetDashboard() {
           <div className="mb-3 font-semibold">Fleet Status</div>
           <div className="flex items-center gap-6">
             <svg width="140" height="140" viewBox="0 0 140 140">
-              <circle cx="70" cy="70" r={R} fill="none" stroke="#10B981" strokeWidth="16" />
-              <circle cx="70" cy="70" r={R} fill="none" stroke="#DC2626" strokeWidth="16" strokeDasharray={`${CIRC * pct} ${CIRC}`} transform="rotate(-90 70 70)" />
+              <circle cx="70" cy="70" r={R} fill="none" stroke={total ? "#10B981" : "#E5E7EB"} strokeWidth="16" />
+              {pct > 0 && <circle cx="70" cy="70" r={R} fill="none" stroke="#DC2626" strokeWidth="16" strokeDasharray={`${CIRC * pct} ${CIRC}`} transform="rotate(-90 70 70)" />}
               <text x="70" y="72" textAnchor="middle" fontSize="26" fontWeight="700" fill="currentColor">{total}</text>
               <text x="70" y="90" textAnchor="middle" fontSize="9" fill="currentColor" opacity="0.6">VEHICLES</text>
             </svg>
@@ -73,7 +73,7 @@ export default function FleetDashboard() {
                   <Stat v={r.drivers} l="Onboarded" c="" />
                   <Stat v={r.paid} l="Paid" c="text-emerald-600" onClick={() => nav(`/history?city=${encodeURIComponent(r.city)}&date=${date}&status=approved`)} />
                   <Stat v={r.pending} l="Pending" c="text-orange-500" onClick={() => nav(`/history?city=${encodeURIComponent(r.city)}&date=${date}&status=pending`)} />
-                  <Stat v={r.unpaid} l="Not paid" c="text-blue-600" onClick={() => nav(`/drivers?city=${encodeURIComponent(r.city)}`)} />
+                  <Stat v={r.unpaid} l="Not paid" c="text-red-600" onClick={() => nav(`/drivers?city=${encodeURIComponent(r.city)}`)} />
                 </div>
               </div>))}
           </div>

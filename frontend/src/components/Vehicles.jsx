@@ -80,7 +80,7 @@ export const VehicleSelect = ({
         const vinClean = (v.vin || "").toLowerCase().replace(/[\s-]/g, "");
         return idClean.includes(cleanQ) || regClean.includes(cleanQ) || vinClean.includes(cleanQ);
       })
-    : [];
+    : cityVehicles.slice(0, 30);
 
   const handleSelect = (vid) => {
     onChange(vid);
@@ -170,11 +170,7 @@ export const VehicleSelect = ({
             </button>
           )}
 
-          {!cleanQ ? (
-            <div className="p-4 text-center text-xs text-muted-foreground">
-              Type vehicle ID or registration number to search…
-            </div>
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="p-4 text-center text-xs text-muted-foreground">
               No matching vehicles found {cityDisplayName ? `in ${cityDisplayName}` : ""} {query ? `for "${query}"` : ""}.
             </div>

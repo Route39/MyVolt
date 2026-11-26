@@ -53,7 +53,7 @@ const Screenshot = ({ file, existingId, uploading, scanning, onPick, onClear }) 
   );
 };
 
-export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, txn, onDone }) => {
+export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, txn, onDone, weekOffsUsed = 0, weekOffLimit = 3 }) => {
   const [form, setForm] = useState({ amount: "", utr: "", method: "UPI", remarks: "", reason: "", vehicle_id: null });
   const vehicles = useVehicles(open);
   const [file, setFile] = useState(null);
@@ -61,17 +61,23 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
   const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [action, setAction] = useState("payment");
+  const [evReplacement, setEvReplacement] = useState(null);
+  const [issueReason, setIssueReason] = useState("");
   const editing = mode === "resubmit" || mode === "correct";
 
   useEffect(() => {
     if (!open) return;
     setForm({
       amount: String(txn?.amount ?? driver?.daily_rent ?? ""), utr: txn?.utr || "", method: txn?.method || "UPI",
-      remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : null,
+      remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : (driver?.current_vehicle_id || null),
     });
     setFile(null);
     setScanning(false);
     setError("");
+    setAction("payment");
+    setEvReplacement(null);
+    setIssueReason("");
   }, [open, txn, driver]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target ? e.target.value : e }));
@@ -127,7 +133,18 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
     try {
       if (mode === "resubmit") await api.put(`/transactions/${txn.id}/resubmit`, body);
       else if (mode === "correct") await api.put(`/transactions/${txn.id}/correct`, { ...body, reason: form.reason });
-      else await api.post("/transactions", { ...body, driver_id: driver.id, payment_date: date, is_split: mode === "split" });
+      else {
+        await api.post("/transactions", { ...body, driver_id: driver.id, payment_date: date, is_split: mode === "split" });
+        if (action === "ev_issue" && evReplacement === true) {
+          await api.post(`/drivers/${driver.id}/day-status`, {
+            date,
+            type: "ev_issue",
+            replacement_given: true,
+            replacement_vehicle_id: form.vehicle_id || driver?.current_vehicle_id || null,
+            reason: form.remarks.trim() || "EV Issue · Replacement vehicle given",
+          });
+        }
+      }
       toast.success(mode === "correct" ? "Correction saved — sent back for verification" : "Pending Accounts Verification", {
         description: `${driver.name} · ${fmtDate(date)} · ${inr(body.amount)}`,
       });
@@ -140,13 +157,49 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
     }
   };
 
+  const submitDayStatus = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      await api.post(`/drivers/${driver.id}/day-status`, {
+        date,
+        type: action,
+        replacement_given: action === "ev_issue" ? false : null,
+        reason: issueReason.trim(),
+      });
+      const label = action === "week_off" ? "Week Off marked" : action === "ev_issue" ? "EV Issue (No Ride) marked" : "Issue marked";
+      toast.success(label, { description: `${driver.name} · ${fmtDate(date)} · ₹0 rent` });
+      onOpenChange(false);
+      onDone?.();
+    } catch (e2) {
+      setError(errMsg(e2));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const cash = form.method === "Cash";
+  const showActionTabs = mode === "new";
+  const weekOffFull = weekOffsUsed >= weekOffLimit;
+  const showPaymentForm = !showActionTabs || action === "payment" || (action === "ev_issue" && evReplacement === true);
+  const dialogTitle = !showActionTabs
+    ? TITLES[mode]
+    : action === "week_off"
+      ? "MARK WEEK OFF"
+      : action === "ev_issue"
+        ? "VEHICLE / EV ISSUE"
+        : action === "other_issue"
+          ? "MARK OTHER ISSUE"
+          : TITLES[mode];
+
   return (
     <Dialog open={open} onOpenChange={(o) => !submitting && onOpenChange(o)}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[520px]" data-testid="payment-dialog">
+      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[540px]" data-testid="payment-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base tracking-wide" data-testid="payment-dialog-title">{TITLES[mode]}</DialogTitle>
-          <DialogDescription className="sr-only">Enter payment details</DialogDescription>
+          <DialogTitle className="text-base tracking-wide" data-testid="payment-dialog-title">{dialogTitle}</DialogTitle>
+          <DialogDescription className="sr-only">Record payment or mark day issue</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3 rounded-md bg-[var(--surface)] p-3 text-sm sm:grid-cols-4">
           <div><div className="text-[11px] text-muted-foreground">Driver</div><div className="truncate font-medium" data-testid="payment-dialog-driver">{driver?.name}</div></div>
@@ -155,11 +208,140 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
           <div><div className="text-[11px] text-muted-foreground">Daily rent</div><div className="font-medium">{inr(driver?.daily_rent)}</div></div>
           <div className="col-span-2 sm:col-span-4"><span className="text-[11px] text-muted-foreground">Current vehicle </span><span className="font-mono text-xs font-medium" data-testid="payment-dialog-current-vehicle">{driver?.current_vehicle_id || "None"}{driver?.vehicle_no ? ` · ${driver.vehicle_no}` : ""}</span></div>
         </div>
+        {showActionTabs && (
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4" data-testid="day-action-tabs">
+            {[
+              ["payment", "Rent Payment"],
+              ["week_off", `Week Off (${weekOffsUsed}/${weekOffLimit})`],
+              ["ev_issue", "EV Issue"],
+              ["other_issue", "Other Issue"],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                data-testid={`day-action-${k}`}
+                onClick={() => { setAction(k); setError(""); if (k !== "ev_issue") setEvReplacement(null); }}
+                className={`rounded-md border px-2 py-2 text-xs font-medium transition-colors ${
+                  action === k ? "border-[var(--r39-green)] bg-[var(--r39-green-bg)] text-[var(--r39-green-text)]" : "hover:bg-muted"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {mode === "resubmit" && txn?.rejection_reason && (
           <div className="st-rejected st-pill flex gap-2 rounded-md p-3 text-sm" data-testid="payment-dialog-rejection">
             <AlertTriangle className="h-4 w-4 shrink-0" /><span><b>Rejected:</b> {txn.rejection_reason}</span>
           </div>
         )}
+        {showActionTabs && action === "week_off" && (
+          <form onSubmit={submitDayStatus} className="space-y-4">
+            <div className={`rounded-md p-3 text-sm ${weekOffFull ? "st-rejected st-pill" : "st-week_off st-pill"}`}>
+              <div className="font-semibold">
+                {weekOffFull
+                  ? `Week off limit reached (${weekOffLimit}/${weekOffLimit} days used this month).`
+                  : `Week off quota: ${weekOffsUsed} of ${weekOffLimit} used this month`}
+              </div>
+              <div className="mt-0.5 text-xs">
+                {weekOffFull
+                  ? "You cannot add another Week Off this month."
+                  : "Marking Week Off waives ₹0 rent for this date and closes it."}
+              </div>
+            </div>
+            {!weekOffFull && (
+              <div className="space-y-1.5">
+                <Label htmlFor="weekoff-reason">Note <span className="text-muted-foreground">(optional)</span></Label>
+                <Textarea id="weekoff-reason" rows={2} value={issueReason} onChange={(e) => setIssueReason(e.target.value)} placeholder="e.g. Scheduled weekly off" data-testid="weekoff-reason-input" />
+              </div>
+            )}
+            {error && <div className="st-rejected st-pill rounded-md p-2.5 text-sm" data-testid="payment-dialog-error">{error}</div>}
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>CANCEL</Button>
+              <Button type="submit" disabled={submitting || weekOffFull} className="h-10" data-testid="weekoff-submit-button">
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                MARK WEEK OFF & CLOSE
+              </Button>
+            </div>
+          </form>
+        )}
+        {showActionTabs && action === "ev_issue" && (
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="block text-sm font-semibold">Was another / replacement vehicle given to the driver?</Label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="ev-replacement-yes"
+                onClick={() => {
+                  setEvReplacement(true);
+                  setError("");
+                  setForm((f) => ({ ...f, remarks: f.remarks || "EV Issue · Replacement vehicle given" }));
+                }}
+                className={`rounded-md border p-2.5 text-left text-xs font-medium transition-colors ${
+                  evReplacement === true ? "border-[var(--r39-green)] bg-[var(--r39-green-bg)] text-[var(--r39-green-text)]" : "hover:bg-muted"
+                }`}
+              >
+                <div className="font-semibold">Yes — Replacement vehicle given</div>
+                <div className="mt-0.5 text-[11px] opacity-80">Record UTR &amp; rent payment below</div>
+              </button>
+              <button
+                type="button"
+                data-testid="ev-replacement-no"
+                onClick={() => { setEvReplacement(false); setError(""); }}
+                className={`rounded-md border p-2.5 text-left text-xs font-medium transition-colors ${
+                  evReplacement === false ? "border-[#3B82F6] bg-[#EFF6FF] text-[#1D4ED8]" : "hover:bg-muted"
+                }`}
+              >
+                <div className="font-semibold">No — Not given (Did not ride)</div>
+                <div className="mt-0.5 text-[11px] opacity-80">Close date as EV Issue (₹0 rent)</div>
+              </button>
+            </div>
+            {evReplacement === null && (
+              <div className="flex justify-end pt-1">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>CANCEL</Button>
+              </div>
+            )}
+          </div>
+        )}
+        {showActionTabs && action === "ev_issue" && evReplacement === false && (
+          <form onSubmit={submitDayStatus} className="space-y-4">
+            <div className="st-ev_issue st-pill rounded-md p-3 text-xs">
+              Driver did not ride this day — <b>₹0 rent</b> will be charged and this date will be closed as <b>EV Issue (No Ride)</b>.
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ev-issue-reason">Vehicle issue details <span className="text-muted-foreground">(optional)</span></Label>
+              <Textarea id="ev-issue-reason" rows={2} value={issueReason} onChange={(e) => setIssueReason(e.target.value)} placeholder="e.g. Battery fault / motor repair, no spare EV available" data-testid="ev-issue-reason-input" />
+            </div>
+            {error && <div className="st-rejected st-pill rounded-md p-2.5 text-sm" data-testid="payment-dialog-error">{error}</div>}
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>CANCEL</Button>
+              <Button type="submit" disabled={submitting} className="h-10" data-testid="ev-issue-submit-button">
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                MARK EV ISSUE (NO RIDE) & CLOSE
+              </Button>
+            </div>
+          </form>
+        )}
+        {showActionTabs && action === "other_issue" && (
+          <form onSubmit={submitDayStatus} className="space-y-4">
+            <div className="st-other_issue st-pill rounded-md p-3 text-xs">
+              This date will be closed as <b>Other Issue</b> with <b>₹0 rent</b>.
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="other-issue-reason">Reason for issue (required)</Label>
+              <Textarea id="other-issue-reason" rows={2} required minLength={2} value={issueReason} onChange={(e) => setIssueReason(e.target.value)} placeholder="e.g. Medical leave / personal emergency" data-testid="other-issue-reason-input" />
+            </div>
+            {error && <div className="st-rejected st-pill rounded-md p-2.5 text-sm" data-testid="payment-dialog-error">{error}</div>}
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>CANCEL</Button>
+              <Button type="submit" disabled={submitting} className="h-10" data-testid="other-issue-submit-button">
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                MARK ISSUE & CLOSE
+              </Button>
+            </div>
+          </form>
+        )}
+        {showPaymentForm && (
         <form onSubmit={submit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -172,7 +354,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Vehicle ID used for this payment</Label>
+            <Label>{action === "ev_issue" && evReplacement ? "Replacement Vehicle ID" : "Vehicle ID used for this payment"}</Label>
             <VehicleSelect
               vehicles={vehicles.filter((v) => v.status !== "Inactive" || v.vehicle_id === form.vehicle_id)}
               driver={driver}
@@ -217,6 +399,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
             </Button>
           </div>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );

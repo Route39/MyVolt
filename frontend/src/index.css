@@ -62,12 +62,15 @@ h1, h2, h3 { font-family: 'Manrope', 'Inter', sans-serif; }
 
 /* Status palette */
 .st-none, .st-inactive, .st-not_started, .st-rent_free { --st-bg: #FFFFFF; --st-border: #E5E7EB; --st-text: #64748B; --st-accent: #CBD5E1; --st-pill: #F1F5F9; }
-.st-pending { --st-bg: #FFF7ED; --st-border: #FDBA74; --st-text: #C2410C; --st-accent: #F97316; --st-pill: #FFEDD5; }
+.st-pending { --st-bg: #FEFCE8; --st-border: #FDE047; --st-text: #A16207; --st-accent: #EAB308; --st-pill: #FEF9C3; }
 .st-verified, .st-approved { --st-bg: #ECFDF5; --st-border: #6EE7B7; --st-text: #047857; --st-accent: #10B981; --st-pill: #D1FAE5; }
-.st-rejected { --st-bg: #FEF2F2; --st-border: #FCA5A5; --st-text: #B91C1C; --st-accent: #DC2626; --st-pill: #FEE2E2; }
-.st-unpaid { --st-bg: #EFF6FF; --st-border: #93C5FD; --st-text: #1D4ED8; --st-accent: #3B82F6; --st-pill: #DBEAFE; }
-.st-partial { --st-bg: #FEFCE8; --st-border: #FDE047; --st-text: #A16207; --st-accent: #EAB308; --st-pill: #FEF9C3; }
-.st-joining { --st-bg: #F8FAFC; --st-border: #CBD5E1; --st-text: #475569; --st-accent: #94A3B8; --st-pill: #F1F5F9; }
+.st-rejected { --st-bg: #FFF1F2; --st-border: #FB7185; --st-text: #9F1239; --st-accent: #E11D48; --st-pill: #FFE4E6; }
+.st-unpaid { --st-bg: #FEF2F2; --st-border: #FCA5A5; --st-text: #B91C1C; --st-accent: #DC2626; --st-pill: #FEE2E2; }
+.st-partial { --st-bg: #FFF7ED; --st-border: #FDBA74; --st-text: #C2410C; --st-accent: #F97316; --st-pill: #FFEDD5; }
+.st-joining { --st-bg: #F1F5F9; --st-border: #CBD5E1; --st-text: #475569; --st-accent: #94A3B8; --st-pill: #E2E8F0; }
+.st-week_off { --st-bg: #F5F3FF; --st-border: #C4B5FD; --st-text: #6D28D9; --st-accent: #7C3AED; --st-pill: #EDE9FE; }
+.st-ev_issue { --st-bg: #EFF6FF; --st-border: #93C5FD; --st-text: #1D4ED8; --st-accent: #3B82F6; --st-pill: #DBEAFE; }
+.st-other_issue { --st-bg: #F8FAFC; --st-border: #94A3B8; --st-text: #334155; --st-accent: #64748B; --st-pill: #E2E8F0; }
 
 .st-pill { background: var(--st-pill); color: var(--st-text); }
 .st-dot { background: var(--st-accent); }

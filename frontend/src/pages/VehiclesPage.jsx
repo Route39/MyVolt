@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Pencil, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2 } from "lucide-react";
+import { Plus, Pencil, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,12 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DriverSearch } from "@/components/DriverSearch";
 import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
+import { useUser } from "@/context/UserContext";
 import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
 import { PageHeader, Pager, StatCard, SortTh, usePaged } from "@/components/kit";
 
 const EMPTY = { vehicle_id: "", reg_no: "", vin: "", city: "Bangalore", status: "Active" };
 
 const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
+  const { hasRole } = useUser();
+  const isAdmin = hasRole("admin");
   const [f, setF] = useState(EMPTY);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,7 +106,7 @@ const VehicleDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
             </Select>
           </div>
           <div className="flex flex-col-reverse gap-2 w425:flex-row w425:items-center w425:justify-between sm:col-span-2 pt-2">
-            {vehicle ? (
+            {vehicle && isAdmin ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -190,6 +194,9 @@ const AssignDriverDialog = ({ open, onOpenChange, vehicle, onSaved }) => {
 };
 
 export default function VehiclesPage() {
+  const nav = useNavigate();
+  const { hasRole } = useUser();
+  const isAdmin = hasRole("admin");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(undefined);
@@ -217,7 +224,7 @@ export default function VehiclesPage() {
       rows.filter((v) => {
         const displayStatus = v.status === "Active" ? (v.current_driver ? "rented" : v.rental_status || "available") : v.status;
         const statusOk = status === "all" || v.status === status || displayStatus === status;
-        const cityOk = city === "all" || v.city === city;
+        const cityOk = city === "all" || normalizeCity(v.city) === normalizeCity(city);
         const assignOk = assignment === "all" || (assignment === "assigned" ? !!v.current_driver : !v.current_driver);
         return statusOk && cityOk && assignOk;
       }),
@@ -356,6 +363,44 @@ export default function VehiclesPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[160px]" data-testid="vehicles-filter-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="rented">Rented</SelectItem>
+              <SelectItem value="available">Available</SelectItem>
+              <SelectItem value="Maintenance">Maintenance</SelectItem>
+              <SelectItem value="Inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={assignment} onValueChange={setAssignment}>
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[170px]" data-testid="vehicles-filter-assignment">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All drivers</SelectItem>
+              <SelectItem value="assigned">With driver</SelectItem>
+              <SelectItem value="unassigned">Without driver</SelectItem>
+            </SelectContent>
+          </Select>
+          {(city !== "all" || status !== "all" || assignment !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9"
+              data-testid="vehicles-filter-clear"
+              onClick={() => {
+                setCity("all");
+                setStatus("all");
+                setAssignment("all");
+                nav("/vehicles", { replace: true });
+              }}
+            >
+              <X className="mr-1 h-4 w-4" />Clear
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="data-table w-full min-w-[700px] whitespace-nowrap" data-testid="vehicles-table">
@@ -382,9 +427,11 @@ export default function VehiclesPage() {
                     <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(v); }} data-testid={`vehicle-edit-${v.vehicle_id}`}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete vehicle" onClick={(e) => { e.stopPropagation(); setToDelete(v); }} data-testid={`vehicle-delete-${v.vehicle_id}`}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {isAdmin && (
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete vehicle" onClick={(e) => { e.stopPropagation(); setToDelete(v); }} data-testid={`vehicle-delete-${v.vehicle_id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

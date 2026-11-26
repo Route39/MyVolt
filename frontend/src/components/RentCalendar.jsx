@@ -5,7 +5,16 @@ import { MONTHS, STATUS, inr, todayIso } from "@/lib/format";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const LEGEND = [
-  ["none", "No entry"], ["unpaid", "Not paid"], ["pending", "Pending verification"], ["verified", "Verified"], ["joining", "Joining Date (Rent Free)"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
+  ["unpaid", "Not paid"],
+  ["verified", "Verified"],
+  ["pending", "Pending verification"],
+  ["partial", "Pending / Partial"],
+  ["joining", "Joining Date"],
+  ["week_off", "Week Off"],
+  ["ev_issue", "EV Issue"],
+  ["other_issue", "Other Issue"],
+  ["rejected", "Rejected"],
+  ["none", "No entry"],
 ];
 
 export const CalendarLegend = () => (
@@ -56,7 +65,7 @@ const DayCell = ({ day, onClick, selected }) => {
       data-testid={`calendar-day-${day.date}`}
       data-status={day.status}
       disabled={day.disabled}
-      title={day.reason || (isJoining ? "Joining Date · Rent Free" : s.label)}
+      title={day.day_status?.reason || day.reason || (isJoining ? "Joining Date · Rent Free" : isUnpaid ? "Not paid" : s.label)}
       onClick={() => onClick(day)}
       className={`cal-cell ${isUnpaid ? "st-unpaid" : s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} ${
         isJoining ? "ring-1 ring-slate-300 font-medium" : ""
@@ -74,9 +83,20 @@ const DayCell = ({ day, onClick, selected }) => {
         </span>
       )}
       {isJoining && (
-        <span className="mt-auto truncate text-[10px] font-bold text-[#047857]">Joined · No Rent</span>
+        <span className="mt-auto truncate text-[10px] font-bold text-slate-600">Joined · No Rent</span>
       )}
-      {!isJoining && day.status !== "none" && (
+      {isUnpaid && (
+        <span className="mt-auto hidden text-[10px] font-medium text-[#B91C1C] sm:block">Not paid</span>
+      )}
+      {!isJoining && ["week_off", "ev_issue", "other_issue"].includes(day.status) && (
+        <div className="mt-auto min-w-0">
+          <span className="block truncate text-[10px] font-semibold leading-tight" style={{ color: "var(--st-text)" }}>{s.label}</span>
+          <span className="hidden truncate text-[9px] leading-tight text-muted-foreground sm:block">
+            {day.status === "ev_issue" ? "No Ride · No Rent" : "No Rent"}
+          </span>
+        </div>
+      )}
+      {!isJoining && day.status !== "none" && !["week_off", "ev_issue", "other_issue"].includes(day.status) && (
         <span className="hidden text-[10px] font-medium leading-tight sm:block">{s.label}{day.txns.length > 1 ? ` · ${day.txns.length}` : ""}</span>
       )}
       {!isJoining && day.status === "none" && day.rent_free && (
@@ -89,12 +109,17 @@ const DayCell = ({ day, onClick, selected }) => {
   );
 };
 
-export const RentCalendar = ({ ym, onMonthChange, days, onDayClick, loading, selectedDate }) => {
+export const RentCalendar = ({ ym, onMonthChange, days, onDayClick, loading, selectedDate, weekOffsUsed = 0, weekOffLimit = 3 }) => {
   const lead = days.length ? (new Date(`${days[0].date}T00:00:00`).getDay() + 6) % 7 : 0;
   return (
     <section className="r-card p-3 sm:p-4" data-testid="rent-calendar">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <h2 className="text-base font-semibold tracking-tight" data-testid="calendar-month-label">{MONTHS[ym.m]} {ym.y}</h2>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className="text-base font-semibold tracking-tight" data-testid="calendar-month-label">{MONTHS[ym.m]} {ym.y}</h2>
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${weekOffsUsed >= weekOffLimit ? "st-week_off st-pill" : "bg-muted text-muted-foreground"}`} data-testid="calendar-weekoff-count">
+            Week Offs: {weekOffsUsed}/{weekOffLimit} this month
+          </span>
+        </div>
         <MonthNav ym={ym} onChange={onMonthChange} />
       </div>
       <div className="mb-4"><CalendarLegend /></div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2 } from "lucide-react";
+import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -9,12 +9,15 @@ import { DriverFormDialog, AdjustmentsDialog } from "@/components/DriverDialogs"
 import { VehicleAssignDialog } from "@/components/Vehicles";
 import { ImportDialog } from "@/components/ImportDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
-import { inr, todayIso, FLEET_CITIES } from "@/lib/format";
+import { useUser } from "@/context/UserContext";
+import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader, Pager, StatCard, SortTh, usePaged } from "@/components/kit";
 
 export default function DriversPage() {
   const nav = useNavigate();
+  const { hasRole } = useUser();
+  const isAdmin = hasRole("admin");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(undefined);
@@ -25,7 +28,9 @@ export default function DriversPage() {
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState(() => new URLSearchParams(window.location.search).get("city") || "all");
-  const noVeh = new URLSearchParams(window.location.search).get("vehicle") === "none";
+  const [vehicleFilter, setVehicleFilter] = useState(() =>
+    new URLSearchParams(window.location.search).get("vehicle") === "none" ? "unassigned" : "all"
+  );
   const [sort, setSort] = useState({ key: "driver_code", dir: "asc" });
 
   const cities = useMemo(() => {
@@ -33,8 +38,14 @@ export default function DriversPage() {
     return [...set].sort();
   }, [rows]);
   const filtered = useMemo(
-    () => rows.filter((d) => (status === "all" || d.status === status) && (city === "all" || d.city === city) && (!noVeh || !d.current_vehicle_id)),
-    [rows, status, city, noVeh]
+    () =>
+      rows.filter(
+        (d) =>
+          (status === "all" || d.status === status) &&
+          (city === "all" || normalizeCity(d.city) === normalizeCity(city)) &&
+          (vehicleFilter === "all" || (vehicleFilter === "assigned" ? !!d.current_vehicle_id : !d.current_vehicle_id))
+      ),
+    [rows, status, city, vehicleFilter]
   );
   const sorted = useMemo(() => {
     const list = [...filtered];
@@ -61,7 +72,7 @@ export default function DriversPage() {
     return list;
   }, [filtered, sort.key, sort.dir]);
 
-  const paged = usePaged(sorted, 25, [q, status, city, sort.key, sort.dir]);
+  const paged = usePaged(sorted, 25, [q, status, city, vehicleFilter, sort.key, sort.dir]);
 
   const cityStats = useMemo(() => {
     const map = {};
@@ -104,7 +115,7 @@ export default function DriversPage() {
     <div className="space-y-4 fade-up">
       <PageHeader
         title="Driver Management"
-        subtitle={`${rows.length} drivers · Driver IDs are permanent`}
+        subtitle={`${rows.length} drivers · Manage profiles, daily rent and vehicle assignments`}
         actions={
           <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             <Button variant="outline" onClick={exportXlsx} disabled={exporting} data-testid="export-drivers-button">
@@ -176,6 +187,32 @@ export default function DriversPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={vehicleFilter} onValueChange={setVehicleFilter}>
+            <SelectTrigger className="h-9 w-full w425:w-[calc(50%-4px)] sm:w-[170px]" data-testid="drivers-filter-vehicle">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All vehicles</SelectItem>
+              <SelectItem value="assigned">With vehicle</SelectItem>
+              <SelectItem value="unassigned">Without vehicle</SelectItem>
+            </SelectContent>
+          </Select>
+          {(city !== "all" || status !== "all" || vehicleFilter !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9"
+              data-testid="drivers-filter-clear"
+              onClick={() => {
+                setCity("all");
+                setStatus("all");
+                setVehicleFilter("all");
+                nav("/drivers", { replace: true });
+              }}
+            >
+              <X className="mr-1 h-4 w-4" />Clear
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="data-table w-full min-w-[900px] whitespace-nowrap" data-testid="drivers-table">
@@ -212,9 +249,11 @@ export default function DriversPage() {
                     <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit" onClick={(e) => { e.stopPropagation(); setEdit(d); }} data-testid={`driver-edit-${d.id}`}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete driver" onClick={(e) => { e.stopPropagation(); setToDelete(d); }} data-testid={`driver-delete-${d.id}`}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {isAdmin && (
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-[#94A3B8] hover:text-[#DC2626]" title="Delete driver" onClick={(e) => { e.stopPropagation(); setToDelete(d); }} data-testid={`driver-delete-${d.id}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -18,9 +18,14 @@ const KEY = "ledger_state";
 export default function HistoryPage() {
   const nav = useNavigate();
   const [driver, setDriver] = useState(null);
+  const [hasUrlFilters] = useState(() => {
+    const u = new URLSearchParams(window.location.search);
+    return Boolean(u.get("city") || u.get("date") || u.get("status"));
+  });
   const [filters, setFilters] = useState(() => {
     const u = new URLSearchParams(window.location.search);
-    return { ...EMPTY_FILTERS, city: u.get("city") || "all", payment_date: u.get("date") || "", status: u.get("status") || "all" };
+    const d = u.get("date") || "";
+    return { ...EMPTY_FILTERS, city: u.get("city") || "all", date_from: d, date_to: d, status: u.get("status") || "all" };
   });
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ key: "submitted_at", dir: "desc" });
@@ -38,16 +43,18 @@ export default function HistoryPage() {
       if (!active) return;
       const v = r.data?.value;
       if (v && typeof v === "object") {
-        if (v.filters) setFilters(v.filters);
-        if (v.q !== undefined) setQ(v.q);
+        if (!hasUrlFilters) {
+          if (v.filters) setFilters(v.filters);
+          if (v.q !== undefined) setQ(v.q);
+          if (v.page) setPage(v.page);
+        }
         if (v.sort) setSort(v.sort);
-        if (v.page) setPage(v.page);
       }
     }).catch(() => {}).finally(() => {
       if (active) setDbLoaded(true);
     });
     return () => { active = false; };
-  }, []);
+  }, [hasUrlFilters]);
 
   useEffect(() => {
     if (!dbLoaded) return;

@@ -1,4 +1,4 @@
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fmtDate, inr } from "@/lib/format";
 
@@ -11,16 +11,23 @@ const Field = ({ label, value, mono, testId }) => (
 
 const statusCls = { Active: "st-verified", Suspended: "st-rejected", Inactive: "st-none" };
 
-export const DriverCard = ({ driver, onChangeVehicle }) => (
+export const DriverCard = ({ driver, onChangeVehicle, onEdit }) => (
   <section data-testid="driver-info-card" className="r-card p-4 fade-up">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <h2 data-testid="driver-card-name" className="truncate text-lg font-semibold tracking-tight">{driver.name}</h2>
         <div className="font-mono text-xs font-semibold text-[var(--r39-green-text)]" data-testid="driver-card-code">{driver.driver_code}</div>
       </div>
-      <span className={`${statusCls[driver.status] || "st-none"} st-pill rounded-full px-2 py-0.5 text-[11px] font-medium`} data-testid="driver-card-status">
-        {driver.status}
-      </span>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span className={`${statusCls[driver.status] || "st-none"} st-pill rounded-full px-2 py-0.5 text-[11px] font-medium`} data-testid="driver-card-status">
+          {driver.status}
+        </span>
+        {onEdit && (
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={onEdit} data-testid="driver-card-edit-button">
+            <Pencil className="mr-1 h-3 w-3" />Edit
+          </Button>
+        )}
+      </div>
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-[#E5E7EB] bg-[#F8FAFB] px-3 py-2">
       <div className="min-w-0 flex-1">
