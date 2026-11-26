@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AlertTriangle, ImagePlus, Loader2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -54,7 +55,10 @@ const Screenshot = ({ file, existingId, uploading, scanning, onPick, onClear }) 
 };
 
 export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, txn, onDone, weekOffsUsed = 0, weekOffLimit = 3 }) => {
-  const [form, setForm] = useState({ amount: "", utr: "", method: "UPI", remarks: "", reason: "", vehicle_id: null });
+  const [form, setForm] = useState({ amount: "", utr: "", method: "UPI", remarks: "", reason: "", vehicle_id: null, payment_type: "rent", earnings: "" });
+  const payDue = (t, e) => Math.round((Number(e) || 0) * (t === "commission" ? 0.5 : 1));
+  const setType = (t) => setForm((f) => ({ ...f, payment_type: t, amount: t === "rent" ? String(driver?.daily_rent ?? f.amount) : (Number(f.earnings) > 0 ? String(payDue(t, f.earnings)) : f.amount) }));
+  const setEarnings = (v) => setForm((f) => ({ ...f, earnings: v, amount: Number(v) > 0 ? String(payDue(f.payment_type, v)) : f.amount }));
   const vehicles = useVehicles(open);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -69,7 +73,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
   useEffect(() => {
     if (!open) return;
     setForm({
-      amount: String(txn?.amount ?? driver?.daily_rent ?? ""), utr: txn?.utr || "", method: txn?.method || "UPI",
+      amount: String(txn?.amount ?? driver?.daily_rent ?? ""), utr: txn?.utr || "", method: txn?.method || "UPI", payment_type: txn?.payment_type || "rent", earnings: txn?.earnings ? String(txn.earnings) : "",
       remarks: txn?.remarks || "", reason: "", vehicle_id: txn ? txn.vehicle_id : (driver?.current_vehicle_id || null),
     });
     setFile(null);
@@ -128,7 +132,7 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
     e.preventDefault();
     if (submitting || uploading || scanning) return;
     setError("");
-    const body = { amount: Number(form.amount), utr: form.utr.trim(), method: form.method, remarks: form.remarks, file_id: file?.id || txn?.file_id || null, vehicle_id: form.vehicle_id };
+    const body = { amount: Number(form.amount), utr: form.utr.trim(), method: form.method, remarks: form.remarks, file_id: file?.id || txn?.file_id || null, vehicle_id: form.vehicle_id, payment_type: form.payment_type, earnings: form.payment_type === "rent" ? null : (Number(form.earnings) || null) };
     setSubmitting(true);
     try {
       if (mode === "resubmit") await api.put(`/transactions/${txn.id}/resubmit`, body);
@@ -349,9 +353,27 @@ export const PaymentDialog = ({ open, onOpenChange, mode = "new", driver, date, 
               <Input id="amt" type="number" min="1" step="1" required autoFocus value={form.amount} onChange={set("amount")} className="h-11 text-base font-semibold" data-testid="payment-amount-input" />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="utr">UTR / Transaction ref. {cash && <span className="text-muted-foreground">(optional)</span>}</Label>
-              <Input id="utr" required={!cash} value={form.utr} onChange={(e) => setForm((f) => ({ ...f, utr: e.target.value.toUpperCase() }))} placeholder="e.g. 432198765012" className="h-11 font-mono" data-testid="payment-utr-input" />
+              <Label>Payment type</Label>
+              <Select value={form.payment_type} onValueChange={setType}>
+                <SelectTrigger className="h-11 w-full text-base" data-testid="payment-type-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="rent">Rent Payment</SelectItem>
+                  <SelectItem value="commission">Commission (50%)</SelectItem>
+                  <SelectItem value="salary">Salary (full collection)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+          </div>
+          {form.payment_type !== "rent" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="earn">{form.payment_type === "commission" ? "Today's earnings (₹)" : "Today's total collection (₹)"}</Label>
+              <Input id="earn" type="number" min="1" step="1" required value={form.earnings} onChange={(e) => setEarnings(e.target.value)} className="h-11 text-base" data-testid="payment-earnings-input" />
+              {Number(form.earnings) > 0 && <p className="text-xs text-muted-foreground">Payable to Route39: {inr(payDue(form.payment_type, form.earnings))}</p>}
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label htmlFor="utr">UTR / Transaction ref. {cash && <span className="text-muted-foreground">(optional)</span>}</Label>
+            <Input id="utr" required={!cash} value={form.utr} onChange={(e) => setForm((f) => ({ ...f, utr: e.target.value.toUpperCase() }))} placeholder="e.g. 432198765012" className="h-11 font-mono" data-testid="payment-utr-input" />
           </div>
           <div className="space-y-1.5">
             <Label>{action === "ev_issue" && evReplacement ? "Replacement Vehicle ID" : "Vehicle ID used for this payment"}</Label>

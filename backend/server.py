@@ -275,6 +275,8 @@ class TxnIn(BaseModel):
     remarks: str = ""
     is_split: bool = False
     vehicle_id: Optional[str] = None
+    payment_type: Literal["rent", "commission", "salary"] = "rent"
+    earnings: Optional[float] = None
 
 
 class TxnEdit(BaseModel):
@@ -518,9 +520,14 @@ def expected_between(drv, start: date, end: date) -> float:
     free = set(drv.get("rent_free_dates") or [])
     if drv.get("joining_date"):
         free.add(drv["joining_date"])
-    days = sum(1 for i in range((end - s).days + 1) if (s + timedelta(days=i)).isoformat() not in free)
+    over = drv.get("day_expected") or {}
+    total = 0.0
+    for i in range((end - s).days + 1):
+        d = (s + timedelta(days=i)).isoformat()
+        if d not in free:
+            total += float(over[d]) if d in over else float(drv["daily_rent"])
     adj = sum(a["amount"] for a in drv.get("adjustments") or [] if s.isoformat() <= a["date"] <= end.isoformat())
-    return max(days * drv["daily_rent"] - adj, 0.0)
+    return max(total - adj, 0.0)
 
 
 def summarize(drv, txns, start: date, end: date):
@@ -701,8 +708,8 @@ async def update_driver(did: str, body: DriverUpdate, user=Depends(require("staf
 
     code = (new.pop("driver_code", None) or "").strip().upper()
     if code and code != old.get("driver_code"):
-        if not re.fullmatch(r"[A-Z0-9-]{3,20}", code):
-            raise HTTPException(400, "Driver ID can only have letters, numbers and dashes")
+        if not STD_DRIVER_CODE_RX.match(code):
+            raise HTTPException(400, "Driver ID must look like BLR-D-001")
         clash = await db.drivers.find_one({"driver_code": code, "id": {"$ne": did}})
         if clash:
             raise HTTPException(409, f"Driver ID {code} is already used by {clash.get('name')}")
@@ -1649,12 +1656,22 @@ _PAY_WORDS = [
     r"paid", r"payment", r"success(?:ful(?:ly)?)?", r"completed", r"transaction", r"\btxn\b", r"\bUPI\b", r"\bUTR\b",
     r"\bref(?:erence)?\b", r"debited", r"credited", r"transferred", r"\bsent\b", r"beneficiary", r"\bbank\b",
     r"google\s*pay|gpay|phonepe|paytm|bhim|amazon\s*pay|\bcred\b", r"\bfrom\b", r"\bto\b",
+    r"செலுத்த", r"பரிவர்த்தனை", r"வங்கி", r"வெற்றி", r"भुगतान", r"सफल", r"लेन-?देन",
+    r"\b(?:pvt|private|ltd|limited)\b", r"\b\d{1,2}:\d{2}\s*(?:am|pm)\b",
 ]
 
 
 def _read_payment_text(lines):
     """Text logic: do the OCR lines look like a payment receipt, and what is the UTR / transaction ref?"""
     text = "\n".join(lines)
+    parts = []                                                # rejoin ids split across lines (digit-only lines)
+    for ln in lines:
+        t = (ln or "").strip()
+        if parts and re.fullmatch(r"\d+", t) and re.fullmatch(r"\d+", parts[-1]):
+            parts[-1] += t
+        else:
+            parts.append(t)
+    joined = "\n".join(parts)
     txn = None
     for g in _PAY_LABELS:                                     # 1) value written after a known label
         for m in re.finditer(g + r"\.?\s*[:#\-]?\s*\n?\s*" + _PAY_VAL, text, re.I):
@@ -1664,12 +1681,12 @@ def _read_payment_text(lines):
         if txn:
             break
     if not txn:                                               # 2) standalone 12-digit UPI ref, 3) PhonePe-style id
-        m = re.search(r"(?<!\d)(\d{12})(?!\d)", text) or re.search(r"\b(T\d{15,25})\b", text)
+        m = re.search(r"(?<!\d)(\d{12})(?!\d)", text) or re.search(r"(?<!\d)(\d{12})(?!\d)", joined) or re.search(r"\b(T\d{15,25})\b", joined)
         txn = m.group(1) if m else None
     hits = sum(1 for w in _PAY_WORDS if re.search(w, text, re.I))
     has_amount = bool(re.search(r"(?:₹|Rs\.?|INR|\?)\s*\d", text, re.I)) or any(
         re.fullmatch(r"\s*[^\w\s]?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*", ln) for ln in lines)
-    is_payment = bool((txn and hits >= 2) or (has_amount and hits >= 4))
+    is_payment = bool((txn and (hits >= 2 or (has_amount and hits >= 1))) or (has_amount and hits >= 3))
     return {"is_payment": is_payment, "utr": txn.upper() if (is_payment and txn) else None}
 
 
@@ -1774,6 +1791,11 @@ async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "adm
     veh = await db.vehicles.find_one({"vehicle_id": body.vehicle_id}, P)
     if not veh:
         raise HTTPException(400, f"Vehicle {body.vehicle_id} not found")
+    ptype, due = body.payment_type, None
+    if ptype != "rent":
+        if not body.earnings or body.earnings <= 0:
+            raise HTTPException(400, "Enter today's earnings" if ptype == "commission" else "Enter today's total collection")
+        due = round(body.earnings * (0.5 if ptype == "commission" else 1.0), 2)
     count = await db.transactions.count_documents({})
     txn = {
         "id": f"TXN-{100001 + count + uuid.uuid4().int % 1000}", "driver_id": drv["id"], "driver_name": drv["name"],
@@ -1781,6 +1803,7 @@ async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "adm
         "city": drv["city"], "payment_date": body.payment_date,
         "amount": body.amount, "utr": utr, "method": body.method, "file_id": body.file_id,
         "remarks": body.remarks.strip(), "is_split": body.is_split, "status": "pending",
+        "payment_type": ptype, "earnings": body.earnings if ptype != "rent" else None, "due_amount": due,
         "submitted_by": user["id"], "submitted_by_name": user["name"], "submitted_at": now_iso(),
         "verified_by": None, "verified_by_name": None, "verified_at": None, "rejection_reason": None,
         "rejection_history": [], "corrections": [], "version": 1,
@@ -1788,6 +1811,8 @@ async def create_txn(body: TxnIn, user=Depends(require("staff", "accounts", "adm
     while await db.transactions.find_one({"id": txn["id"]}):
         txn["id"] = f"TXN-{uuid.uuid4().hex[:6].upper()}"
     await db.transactions.insert_one(txn)
+    if due is not None:
+        await db.drivers.update_one({"id": drv["id"]}, {"$set": {f"day_expected.{body.payment_date}": due}})
     await audit(user, "Transaction submitted", "transaction", txn["id"], None,
                 f"{inr(body.amount)} · UTR {utr} · {body.method} · {veh['vehicle_id']}{' · split' if body.is_split else ''}", drv["id"])
     txn.pop("_id", None)
@@ -1901,6 +1926,11 @@ async def reject_txn(tid: str, body: RejectIn, user=Depends(require("accounts", 
         "reason": reason, "by": user["name"], "at": upd["verified_at"], "amount": t["amount"], "utr": t["utr"]}}})
     if not done:
         raise HTTPException(409, "This payment was already processed by someone else")
+    if t.get("payment_type") in ("commission", "salary"):
+        still = await db.transactions.find_one({"driver_id": t["driver_id"], "payment_date": t["payment_date"], "id": {"$ne": tid},
+                                                "status": {"$ne": "rejected"}, "payment_type": {"$in": ["commission", "salary"]}})
+        if not still:
+            await db.drivers.update_one({"id": t["driver_id"]}, {"$unset": {f"day_expected.{t['payment_date']}": ""}})
     await audit(user, "Transaction rejected", "transaction", tid, "pending", f"rejected: {reason}", t["driver_id"])
     pd = date.fromisoformat(t["payment_date"]).strftime("%d %b %Y")
     await db.notifications.insert_one({
@@ -2277,7 +2307,7 @@ async def overview_fleet(date: Optional[str] = None, user=Depends(current_user))
     except ValueError:
         raise HTTPException(400, "Invalid date format; expected YYYY-MM-DD")
     drivers = await db.drivers.find({"status": "Active"}, {"_id": 0, "id": 1, "city": 1, "status": 1, "daily_rent": 1,
-        "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "current_vehicle_id": 1}).to_list(20000)
+        "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "day_expected": 1, "current_vehicle_id": 1}).to_list(20000)
     vehicles = await db.vehicles.find({}, {"_id": 0, "vehicle_id": 1, "city": 1, "rental_status": 1}).to_list(20000)
     approved_amt = {}
     has_pending = set()
@@ -2322,7 +2352,7 @@ async def overview(days: int = Query(14, ge=7, le=60), user=Depends(current_user
     start, month_start = today - timedelta(days=days - 1), today.replace(day=1)
     first = min(start, month_start).isoformat()
     DRV_PROJ = {"_id": 0, "id": 1, "name": 1, "city": 1, "status": 1, "daily_rent": 1,
-                "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "current_vehicle_id": 1}
+                "rent_start_date": 1, "joining_date": 1, "rent_free_dates": 1, "adjustments": 1, "day_expected": 1, "current_vehicle_id": 1}
     drivers = await db.drivers.find({"status": "Active"}, DRV_PROJ).to_list(20000)
     txns = await db.transactions.find({"payment_date": {"$gte": first, "$lte": today.isoformat()}},
                                       {"_id": 0, "driver_id": 1, "city": 1, "payment_date": 1, "amount": 1, "status": 1}).to_list(200000)
