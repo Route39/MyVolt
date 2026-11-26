@@ -197,9 +197,9 @@ export default function VehiclesPage() {
   const [toDelete, setToDelete] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [status, setStatus] = useState("all");
-  const [city, setCity] = useState("all");
-  const [assignment, setAssignment] = useState("all");
+  const [status, setStatus] = useState(() => new URLSearchParams(window.location.search).get("status") || "all");
+  const [city, setCity] = useState(() => new URLSearchParams(window.location.search).get("city") || "all");
+  const [assignment, setAssignment] = useState(() => (new URLSearchParams(window.location.search).get("driver") === "none" ? "unassigned" : "all"));
   const [sort, setSort] = useState({ key: "vehicle_id", dir: "asc" });
 
   const load = useCallback(() => api.get("/vehicles", { params: { q } }).then((r) => setRows(r.data)), [q]);

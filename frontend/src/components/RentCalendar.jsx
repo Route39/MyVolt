@@ -5,7 +5,7 @@ import { MONTHS, STATUS, inr, todayIso } from "@/lib/format";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const LEGEND = [
-  ["none", "No entry"], ["pending", "Pending verification"], ["verified", "Verified"], ["joining", "Joining Date (Rent Free)"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
+  ["none", "No entry"], ["unpaid", "Not paid"], ["pending", "Pending verification"], ["verified", "Verified"], ["joining", "Joining Date (Rent Free)"], ["rejected", "Rejected"], ["partial", "Partial / adjustment"],
 ];
 
 export const CalendarLegend = () => (
@@ -50,6 +50,7 @@ const DayCell = ({ day, onClick, selected }) => {
   const num = Number(day.date.slice(8));
   const isToday = day.date === todayIso();
   const isJoining = day.is_joining;
+  const isUnpaid = !isJoining && day.status === "none" && !day.rent_free && !day.adjusted && !day.disabled && day.date < todayIso();
   return (
     <button
       data-testid={`calendar-day-${day.date}`}
@@ -57,12 +58,12 @@ const DayCell = ({ day, onClick, selected }) => {
       disabled={day.disabled}
       title={day.reason || (isJoining ? "Joining Date · Rent Free" : s.label)}
       onClick={() => onClick(day)}
-      className={`cal-cell ${s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} ${
-        isJoining ? "ring-1 ring-[#10B981]/60 font-medium" : ""
+      className={`cal-cell ${isUnpaid ? "st-unpaid" : s.cls} ${isToday ? "is-today" : ""} ${selected ? "is-selected" : ""} ${
+        isJoining ? "ring-1 ring-slate-300 font-medium" : ""
       } relative flex min-h-[48px] min-w-0 flex-col overflow-hidden rounded-md p-1 text-left w375:min-h-[58px] w425:p-1.5 sm:min-h-[76px] sm:p-2 w1600:min-h-[90px]`}
     >
       <div className="flex items-center justify-between">
-        <span className={`text-xs font-semibold sm:text-sm ${isToday ? "text-[var(--r39-green-text)]" : isJoining ? "text-[#047857] font-bold" : ""}`}>
+        <span className={`text-xs font-semibold sm:text-sm ${isToday ? "text-[var(--r39-green-text)]" : isJoining ? "text-slate-600 font-bold" : ""}`}>
           {num}
         </span>
         {day.status !== "none" && <span className="st-dot h-2 w-2 rounded-full" />}

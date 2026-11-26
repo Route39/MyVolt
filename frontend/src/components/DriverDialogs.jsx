@@ -53,7 +53,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
     };
     ["id", "summary", "adjustments", "created_at", "current_vehicle", "assignments", "vehicle_no", "package"].forEach((k) => delete body[k]);
     if (driver) {
-      delete body.driver_code;
+      body.driver_code = f.driver_code.trim().toUpperCase() || null;
     } else {
       body.driver_code = f.driver_code.trim() || null;
     }
@@ -81,7 +81,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
           <div className="grid gap-3.5 sm:grid-cols-2">
             {driver ? (
               <F label="DRIVER ID">
-                <Input disabled value={driver.driver_code} className="font-mono bg-muted" data-testid="driver-form-code-locked" />
+                <Input value={f.driver_code} onChange={set("driver_code")} className="font-mono uppercase" data-testid="driver-form-code-edit" />
               </F>
             ) : (
               <F label="DRIVER ID">

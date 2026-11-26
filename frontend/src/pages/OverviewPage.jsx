@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useUser } from "@/context/UserContext";
 import { api } from "@/lib/api";
 import { inr, MONTHS } from "@/lib/format";
+import FleetDashboard from "@/components/FleetDashboard";
 
 const Quick = ({ to, icon: Icon, label, hint, testId }) => (
   <Link to={to} data-testid={testId} className="r-card group flex items-center gap-3 px-4 py-3 transition-shadow hover:shadow-md">
@@ -43,8 +44,9 @@ export default function OverviewPage() {
   const { hasRole } = useUser();
   const now = new Date();
   return (
-    <div className="space-y-5 fade-up">
+    <div className="space-y-5 fade-up ov-bg">
       <PageHeader title="Overview" subtitle={`Fleet rent collection for ${MONTHS[now.getMonth()]} ${now.getFullYear()} · only Accounts-verified payments count as collected`} />
+      <FleetDashboard />
       <MonthKpis data={data} />
       <div className="grid gap-4 w1200:grid-cols-[1fr_300px] w1440:grid-cols-[1fr_340px]">
         <section className="r-card min-w-0 p-4">
