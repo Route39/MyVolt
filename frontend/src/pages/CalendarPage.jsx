@@ -131,7 +131,7 @@ export default function CalendarPage() {
               onMonthChange={(v) => go(driverId, `${v.y}-${String(v.m + 1).padStart(2, "0")}`)} />
             <section>
               <h3 className="mb-2 text-sm font-semibold">Payment history <span className="font-normal text-muted-foreground">· {history.length} transactions</span></h3>
-              <TransactionsTable rows={history} cols={HISTORY_COLS} testId="driver-history-table" onRowClick={(t) => nav(`/transactions/${t.id}`)} />
+              <TransactionsTable rows={history} cols={HISTORY_COLS} testId="driver-history-table" onRowClick={(t) => { api.put("/user/state/txnNav", { value: { ids: ((history) || []).map((x) => x.id) } }).catch(() => {}).finally(() => nav(`/transactions/${t.id}`)); }} />
             </section>
             <AssignmentHistory items={driver.assignments || []} />
           </div>

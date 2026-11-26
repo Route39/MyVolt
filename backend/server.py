@@ -285,6 +285,7 @@ class TxnEdit(BaseModel):
     remarks: str = ""
     reason: str = ""
     vehicle_id: Optional[str] = None
+    payment_date: Optional[str] = None
 
 
 class RejectIn(BaseModel):
@@ -1933,6 +1934,13 @@ async def apply_edit(t, body: TxnEdit, user, label):
         changes.update({"vehicle_id": veh["vehicle_id"], "vehicle_no": veh["reg_no"]})
         await audit(user, f"Vehicle ID changed{label}", "transaction", t["id"],
                     f"{t.get('vehicle_id') or 'not recorded'} ({t.get('vehicle_no')})", f"{veh['vehicle_id']} ({veh['reg_no']})", t["driver_id"])
+    if body.payment_date and body.payment_date != t.get("payment_date"):
+        try:
+            date.fromisoformat(body.payment_date)
+        except ValueError:
+            raise HTTPException(400, "Invalid payment date")
+        changes["payment_date"] = body.payment_date
+        await audit(user, f"Payment date changed{label}", "transaction", t["id"], t.get("payment_date"), body.payment_date, t["driver_id"])
     return changes
 
 
@@ -1950,6 +1958,21 @@ async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "a
         changes["amount_modified_by"] = user["id"]
     await db.transactions.update_one({"id": tid}, {"$set": changes})
     await audit(user, "Transaction resubmitted", "transaction", tid, "rejected", "pending", t["driver_id"])
+    return await get_txn(tid, user)
+
+
+@api.put("/transactions/{tid}/edit")
+async def edit_txn(tid: str, body: TxnEdit, user=Depends(require("accounts", "admin"))):
+    t = await get_txn_or_404(tid)
+    changes = await apply_edit(t, body, user, " (edit)")
+    if not changes:
+        return await get_txn(tid, user)
+    fields = list(changes.keys())
+    changes.update({"version": t.get("version", 1) + 1, "edited_by": user["id"],
+                    "edited_by_name": user["name"], "edited_at": now_iso()})
+    await db.transactions.update_one({"id": tid}, {"$set": changes, "$push": {"corrections": {
+        "reason": body.reason.strip() or f"Edited by {user['role']}", "by": user["name"], "at": now_iso(), "fields": fields}}})
+    await audit(user, "Transaction edited", "transaction", tid, ", ".join(fields), t["status"], t["driver_id"])
     return await get_txn(tid, user)
 
 

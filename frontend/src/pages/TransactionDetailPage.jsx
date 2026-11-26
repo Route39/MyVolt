@@ -1,3 +1,4 @@
+import { EditTxnDialog } from "@/components/EditTxnDialog";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -142,7 +143,7 @@ const EditUtrDialog = ({ open, onOpenChange, currentUtr, onSave, busy }) => {
   );
 };
 
-const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUtr }) => {
+const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUtr, onEdited }) => {
   const canVerify = ["accounts", "admin"].includes(user.role) && t.status === "pending";
   const canEditUtr = ["accounts", "admin"].includes(user.role);
   const own = t.submitted_by === user.id || t.last_modified_by === user.id;
@@ -161,6 +162,7 @@ const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUt
           <PencilLine className="mr-1.5 h-4 w-4" />Edit UTR Number
         </Button>
       )}
+      {canEditUtr && <EditTxnDialog t={t} onSaved={onEdited} />}
       {t.status === "rejected" && (user.role === "admin" || own) && (
         <Button className="w-full" onClick={onResubmit} data-testid="resubmit-payment-button"><RotateCcw className="mr-1.5 h-4 w-4" />Correct & Resubmit</Button>
       )}
@@ -184,6 +186,51 @@ export default function TransactionDetailPage() {
 
   const load = useCallback(() => api.get(`/transactions/${id}`).then((r) => setT(r.data)).catch((e) => toast.error(errMsg(e))), [id]);
   useEffect(() => { load(); }, [load]);
+
+  const [navCtx, setNavCtx] = useState(null);
+  useEffect(() => { api.get("/user/state/txnNav").then((r) => setNavCtx(r.data?.value || null)).catch(() => {}); }, [id]);
+  const navIds = navCtx?.ids || [];
+  const navIdx = navIds.indexOf(id);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const el = document.activeElement;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (navIdx < 0) {
+        e.preventDefault();
+        api.get("/user/state/txnNav").then((r) => {
+          const c = r.data?.value || null; const ids = c?.ids || []; const i = ids.indexOf(id);
+          if (i < 0) { toast("Open from a list to use ← / →"); return; }
+          setNavCtx(c);
+          const j = e.key === "ArrowRight" ? i + 1 : i - 1;
+          if (j < 0 || j >= ids.length) { toast("No more transactions"); return; }
+          nav(`/transactions/${ids[j]}`);
+        }).catch(() => toast("Open from a list to use ← / →"));
+        return;
+      }
+      const ni = e.key === "ArrowRight" ? navIdx + 1 : navIdx - 1;
+      if (ni < 0 || ni >= navIds.length) {
+        e.preventDefault();
+        const np = (navCtx?.page || 1) + (ni < 0 ? -1 : 1);
+        if (!navCtx?.params || np < 1 || (np - 1) * navCtx.page_size >= (navCtx.total || 0)) { toast("No more transactions"); return; }
+        api.get("/transactions", { params: { ...navCtx.params, page: np, page_size: navCtx.page_size } }).then((r) => {
+          const ids = (r.data?.items || []).map((x) => x.id);
+          if (!ids.length) { toast("No more transactions"); return; }
+          const ctx = { ...navCtx, ids, page: np, total: r.data.total };
+          setNavCtx(ctx);
+          api.put("/user/state/txnNav", { value: ctx }).catch(() => {});
+          nav(`/transactions/${ni < 0 ? ids[ids.length - 1] : ids[0]}`);
+        }).catch(() => toast("No more transactions"));
+        return;
+      }
+      e.preventDefault();
+      nav(`/transactions/${navIds[ni]}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navIdx, navIds.join(","), nav, navCtx, id]);
 
   const act = async (path, body, msg) => {
     setBusy(true);
@@ -273,7 +320,7 @@ export default function TransactionDetailPage() {
             </div>
             {t.status === "rejected" && <div className="st-rejected st-pill mt-3 rounded-md p-3 text-sm" data-testid="txn-rejection-reason"><b>Rejection reason:</b> {t.rejection_reason}</div>}
           </section>
-          <Actions t={t} user={user} onApprove={() => setConfirm(true)} onReject={() => setReject(true)}
+          <Actions onEdited={(d) => { setT(d); toast.success("Payment updated"); }} t={t} user={user} onApprove={() => setConfirm(true)} onReject={() => setReject(true)}
             onCorrect={() => setEdit("correct")} onResubmit={() => setEdit("resubmit")} onEditUtr={() => setEditUtr(true)} />
           <AuditTrail items={t.audit} />
         </div>

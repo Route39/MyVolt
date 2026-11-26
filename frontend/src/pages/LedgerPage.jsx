@@ -104,7 +104,7 @@ export default function HistoryPage() {
         <TxnFilters value={filters} onChange={setFilters} showStatus range />
       </div>
       <TransactionsTable rows={data.items} cols={ALL_COLS} testId="history-table" sort={sort} onSort={setSort} loading={loading}
-        onRowClick={(t) => nav(`/transactions/${t.id}`)} footer={<Pager page={page} pageSize={SIZE} total={data.total} onPage={setPage} testId="ledger-pager" />} />
+        onRowClick={(t) => { api.put("/user/state/txnNav", { value: { ids: ((data.items) || []).map((x) => x.id) } }).catch(() => {}).finally(() => nav(`/transactions/${t.id}`)); }} footer={<Pager page={page} pageSize={SIZE} total={data.total} onPage={setPage} testId="ledger-pager" />} />
     </div>
   );
 }

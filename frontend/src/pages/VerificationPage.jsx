@@ -150,7 +150,7 @@ export default function VerificationPage() {
         sort={sort} onSort={onSort} loading={loading}
         footer={<Pager page={page} pageSize={SIZE} total={rows.total} onPage={setPage} testId="verification-pager" />}
         empty={tab === "pending" ? "No payments waiting for verification" : "No transactions found"}
-        onRowClick={(t) => nav(`/transactions/${t.id}`)} />
+        onRowClick={(t) => { api.put("/user/state/txnNav", { value: { ids: (rows.items || []).map((x) => x.id), params: { ...base, status: tab, sort: sort.key, dir: sort.dir }, page, page_size: SIZE, total: rows.total } }).catch(() => {}).finally(() => nav(`/transactions/${t.id}`)); }} />
     </div>
   );
 }
