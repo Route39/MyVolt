@@ -73,7 +73,7 @@ export default function FleetDashboard() {
                   <Stat v={r.drivers} l="Onboarded" c="" />
                   <Stat v={r.paid} l="Paid" c="text-emerald-600" onClick={() => nav(`/history?city=${encodeURIComponent(r.city)}&date=${date}&status=approved`)} />
                   <Stat v={r.pending} l="Pending" c="text-orange-500" onClick={() => nav(`/history?city=${encodeURIComponent(r.city)}&date=${date}&status=pending`)} />
-                  <Stat v={r.unpaid} l="Not paid" c="text-red-600" onClick={() => nav(`/drivers?city=${encodeURIComponent(r.city)}`)} />
+                  <Stat v={r.unpaid} l="Not paid" c="text-red-600" onClick={() => nav(`/board?date=${date}&city=${encodeURIComponent(r.city)}&status=unpaid`)} />
                 </div>
               </div>))}
           </div>

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, Query, Header, HTTPException, UploadFile, File, Depends, Response
+from fastapi import FastAPI, APIRouter, Query, Header, HTTPException, UploadFile, File, Depends, Response, Form
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING, IndexModel, ReturnDocument, UpdateOne
@@ -26,6 +26,7 @@ import jwt
 
 import storage
 import importer
+import monthly_sheet
 from seed import seed, USERS as SEED_USERS
 
 client = AsyncIOMotorClient(os.environ.get('MONGO_URL', 'mongodb://localhost:27017'))
@@ -242,6 +243,10 @@ class DayStatusIn(BaseModel):
     reason: str = ""
 
 
+class CalendarSheetCommitIn(BaseModel):
+    rows: List[dict]
+
+
 class VehicleIn(BaseModel):
     vehicle_id: Optional[str] = None
     reg_no: str = Field(min_length=4)
@@ -304,7 +309,7 @@ class ImportRowIn(BaseModel):
     name: str = ""
     mobile: str = ""
     city: str = "Bangalore"
-    daily_rent: float = 700.0
+    daily_rent: float = 850.0
     joining_date: str = ""
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
@@ -1022,7 +1027,7 @@ async def import_template(mode: str = "drivers_and_vehicles", user=Depends(requi
         ws.title = "Drivers Template"
         cols = ["DRIVER ID", "DRIVER NAME", "PHONE NUMBER", "CITY", "JOINING DATE", "RENT"]
         ws.append(cols)
-        ws.append(["R39D-TUP001", "varshini", "7904800475", "Tiruppur", "2026-10-03", 800])
+        ws.append(["R39D-TUP001", "varshini", "7904800475", "Tiruppur", "2026-10-03", 850])
         fname = "myvolt_drivers_template.xlsx"
     elif mode == "vehicles":
         ws.title = "Vehicles Template"
@@ -1288,7 +1293,7 @@ async def import_commit(body: ImportCommitIn, user=Depends(require("staff", "acc
                 joining = importer.clean_date(row.joining_date, today_str)
                 handover = importer.clean_date(row.handover_date, joining) if (row.handover_date or "").strip() else joining
                 rent_start_dt = importer.clean_date(row.rent_start_date, handover) if (row.rent_start_date or "").strip() else handover
-                daily_rent = max(float(row.daily_rent or 700.0), 1.0)
+                daily_rent = max(float(row.daily_rent or 850.0), 1.0)
                 drv_status = importer.clean_status(row.status, kind="driver")
 
                 code_in = re.sub(r"\s*-\s*", "-", (row.driver_code or "").strip().upper())
@@ -1601,6 +1606,577 @@ async def delete_driver_day_status(did: str, ds: str, user=Depends(require("staf
     return {"ok": True, "date": ds}
 
 
+# ---------- monthly calendar excel export & bulk upload ----------
+_METHOD_MAP = {"upi": "UPI", "bank transfer": "Bank Transfer", "bank": "Bank Transfer", "neft": "Bank Transfer", "imps": "Bank Transfer", "cash": "Cash"}
+
+
+def _utr_key(u: Optional[str]) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (u or "").strip().upper())
+
+
+async def find_duplicate_utr(utr: str, exclude_id: Optional[str] = None):
+    k = _utr_key(utr)
+    if not k:
+        return None
+    q: dict[str, Any] = {"status": {"$ne": "rejected"}}
+    if exclude_id:
+        q["id"] = {"$ne": exclude_id}
+    exact = await db.transactions.find_one({**q, "utr": utr.strip().upper()}, P)
+    if exact:
+        return exact
+    rx = {"$regex": r"^\s*" + r"[\s\-]*".join(re.escape(ch) for ch in k) + r"\s*$", "$options": "i"}
+    return await db.transactions.find_one({**q, "utr": rx}, P)
+
+
+def _dup_utr_msg(utr: str, dup: dict) -> str:
+    who = dup.get("driver_name") or "another driver"
+    code = dup.get("driver_code") or ""
+    city = dup.get("city") or "Unknown city"
+    who_str = f"{who} ({code} · {city})" if code else f"{who} ({city})"
+    return f"Duplicate UTR {utr} — already used in {dup['id']} by {who_str} on {dup.get('payment_date')}"
+
+
+async def _validate_calendar_sheet_rows(raw_rows: list[dict], default_driver_id: Optional[str] = None):
+    settings = await get_settings()
+    today = today_ist()
+    all_drivers = await db.drivers.find({}, P).to_list(20000)
+    drv_by_id = {d["id"]: d for d in all_drivers}
+    drv_by_code = {(d.get("driver_code") or "").strip().upper(): d for d in all_drivers if d.get("driver_code")}
+    all_vehicles = await db.vehicles.find({}, P).to_list(20000)
+    veh_by_id = {(v.get("vehicle_id") or "").strip().upper(): v for v in all_vehicles if v.get("vehicle_id")}
+    veh_by_rk = {v["reg_key"]: v for v in all_vehicles if v.get("reg_key")}
+
+    active_txns = await db.transactions.find(
+        {"status": {"$ne": "rejected"}},
+        {"_id": 0, "id": 1, "driver_id": 1, "driver_name": 1, "driver_code": 1, "city": 1,
+         "payment_date": 1, "utr": 1, "method": 1, "amount": 1, "status": 1},
+    ).to_list(200000)
+    active_by_drv_date: dict[tuple[str, str], list[dict]] = {}
+    db_utrs: dict[str, dict] = {}
+    for t in active_txns:
+        active_by_drv_date.setdefault((t["driver_id"], t["payment_date"]), []).append(t)
+        uk = _utr_key(t.get("utr"))
+        if uk and t.get("method") != "Cash":
+            db_utrs[uk] = t
+
+    seen_utrs: dict[str, tuple[int, str, str]] = {}
+    batch_pay_dates: set[tuple[str, str]] = set()
+    batch_wo_counts: dict[tuple[str, str], int] = {}
+    validated: list[dict] = []
+
+    for idx, r in enumerate(raw_rows):
+        row_num = int(r.get("row_num") or (idx + 1))
+        ds_raw = str(r.get("date") or "").strip()
+        ds = monthly_sheet.parse_cell_date(ds_raw)
+        d_code = str(r.get("driver_code") or "").strip().upper()
+        d_id_in = str(r.get("driver_id") or "").strip()
+        drv = drv_by_id.get(d_id_in) or drv_by_code.get(d_code) or drv_by_id.get(d_code)
+        if not drv and default_driver_id and not d_code:
+            drv = drv_by_id.get(default_driver_id)
+
+        act_raw = r.get("action") if r.get("action") is not None else r.get("action_raw")
+        action = monthly_sheet.normalize_action(act_raw)
+        utr = monthly_sheet._clean_utr_cell(r.get("utr"))
+        meth_in = str(r.get("method") or "").strip()
+        meth = _METHOD_MAP.get(meth_in.lower(), meth_in) if meth_in else ""
+        veh_in = str(r.get("vehicle_id") or "").strip().upper()
+        remarks = str(r.get("remarks") or "").strip()
+        amt_raw = r.get("amount") if r.get("amount") is not None else r.get("amount_raw")
+
+        base = {
+            "row_num": row_num,
+            "date": ds or ds_raw,
+            "driver_id": drv["id"] if drv else d_id_in,
+            "driver_code": (drv.get("driver_code") if drv else d_code) or "",
+            "driver_name": (drv.get("name") if drv else str(r.get("driver_name") or "")) or "",
+            "city": drv.get("city", "") if drv else "",
+            "action": action,
+            "action_label": monthly_sheet.ACTION_LABELS.get(action, str(act_raw or "")),
+            "amount": amt_raw,
+            "utr": utr,
+            "method": meth or "UPI",
+            "vehicle_id": veh_in or (drv.get("current_vehicle_id") or "" if drv else ""),
+            "remarks": remarks,
+            "state": "error",
+            "message": "",
+        }
+
+        if not action or action == "not_paid":
+            if not action and drv and ds and utr and not active_by_drv_date.get((drv["id"], ds)):
+                action = "paid"
+                base["action"] = "paid"
+                base["action_label"] = monthly_sheet.ACTION_LABELS["paid"]
+            else:
+                base["state"] = "skipped"
+                base["message"] = "Marked Not Paid (no payment)" if action == "not_paid" else "No action selected"
+                validated.append(base)
+                continue
+
+        if action not in monthly_sheet.ACTION_LABELS:
+            base["message"] = f"Unknown action '{act_raw}'. Use Paid, Week Off, EV Issue (No Ride), EV Issue (Replacement Given), or Other Issue."
+            validated.append(base)
+            continue
+
+        if not drv:
+            base["message"] = f"Driver '{d_code or d_id_in}' not found"
+            validated.append(base)
+            continue
+        if not ds:
+            base["message"] = f"Invalid date '{ds_raw}'"
+            validated.append(base)
+            continue
+        d_obj = date.fromisoformat(ds)
+        if drv.get("joining_date") and ds == drv["joining_date"]:
+            base["state"] = "skipped"
+            base["message"] = "Joining date is already rent-free"
+            validated.append(base)
+            continue
+        if ds < rent_start(drv):
+            base["message"] = "Date is before driver's rent start date"
+            validated.append(base)
+            continue
+        if d_obj > today and not settings["allow_future_dates"]:
+            base["message"] = "Future dates are not enabled"
+            validated.append(base)
+            continue
+
+        existing_txns = active_by_drv_date.get((drv["id"], ds), [])
+        existing_ds = (drv.get("day_statuses") or {}).get(ds)
+
+        if action in ("paid", "ev_issue_replacement"):
+            # Skip unchanged rows already present in DB
+            if existing_txns:
+                same_utr = utr and any((t.get("utr") or "").strip().upper() == utr for t in existing_txns)
+                if same_utr or (meth == "Cash" and not settings["allow_multiple_per_date"]):
+                    base["state"] = "skipped"
+                    base["message"] = "Already recorded in system"
+                    validated.append(base)
+                    continue
+                if not settings["allow_multiple_per_date"]:
+                    base["message"] = "A payment already exists for this date"
+                    validated.append(base)
+                    continue
+            if (drv["id"], ds) in batch_pay_dates and not settings["allow_multiple_per_date"]:
+                base["message"] = "Duplicate date for same driver in this upload"
+                validated.append(base)
+                continue
+
+            try:
+                amt = float(drv["daily_rent"]) if (amt_raw is None or str(amt_raw).strip() == "") else float(amt_raw)
+            except (TypeError, ValueError):
+                base["message"] = f"Invalid amount '{amt_raw}'"
+                validated.append(base)
+                continue
+            if amt <= 0:
+                base["message"] = "Amount must be greater than 0"
+                validated.append(base)
+                continue
+            base["amount"] = round(amt, 2)
+
+            use_method = meth or "UPI"
+            if use_method not in ("UPI", "Bank Transfer", "Cash"):
+                base["message"] = f"Invalid payment method '{meth_in}'. Use UPI, Bank Transfer, or Cash."
+                validated.append(base)
+                continue
+            base["method"] = use_method
+
+            if use_method != "Cash":
+                utr_k = _utr_key(utr)
+                if len(utr_k) < 6:
+                    base["message"] = "UTR / Ref No. must be at least 6 alphanumeric characters"
+                    validated.append(base)
+                    continue
+                if utr_k in db_utrs:
+                    base["message"] = _dup_utr_msg(utr, db_utrs[utr_k])
+                    validated.append(base)
+                    continue
+                if utr_k in seen_utrs:
+                    prev_r, prev_drv, prev_city = seen_utrs[utr_k]
+                    base["message"] = f"Duplicate UTR {utr} — already entered in row {prev_r} ({prev_drv} · {prev_city})"
+                    validated.append(base)
+                    continue
+                seen_utrs[utr_k] = (row_num, drv.get("driver_code") or drv["name"], drv.get("city") or "")
+
+            veh_obj = veh_by_id.get(veh_in) or veh_by_rk.get(reg_key(veh_in)) if veh_in else veh_by_id.get((drv.get("current_vehicle_id") or "").upper())
+            if not veh_obj:
+                base["message"] = f"Vehicle '{veh_in or 'none'}' not found — select a valid Vehicle ID"
+                validated.append(base)
+                continue
+            base["vehicle_id"] = veh_obj["vehicle_id"]
+            if action == "ev_issue_replacement" and not remarks:
+                base["remarks"] = "EV Issue · Replacement vehicle given"
+
+            batch_pay_dates.add((drv["id"], ds))
+            base["state"] = "ready"
+            base["message"] = f"Ready · ₹{int(round(amt)) if amt.is_integer() else amt} ({use_method})"
+            validated.append(base)
+            continue
+
+        # Day-status actions (no_ride: week_off, ev_issue_no_ride, other_issue)
+        target_type = "ev_issue" if action == "ev_issue_no_ride" else action
+        if existing_ds and existing_ds.get("type") == target_type and existing_ds.get("no_ride"):
+            base["state"] = "skipped"
+            base["message"] = f"Already marked as {monthly_sheet.ACTION_LABELS[action]}"
+            validated.append(base)
+            continue
+        if existing_txns or (drv["id"], ds) in batch_pay_dates:
+            base["message"] = "A payment already exists for this date"
+            validated.append(base)
+            continue
+        if action == "week_off":
+            ym = ds[:7]
+            db_wo = sum(
+                1 for k, v in (drv.get("day_statuses") or {}).items()
+                if k.startswith(ym) and v.get("type") == "week_off" and k != ds
+            )
+            cur_wo = db_wo + batch_wo_counts.get((drv["id"], ym), 0)
+            if cur_wo >= 3:
+                base["message"] = f"Week off limit reached (max 3/month for {drv.get('driver_code') or drv['name']})"
+                validated.append(base)
+                continue
+            batch_wo_counts[(drv["id"], ym)] = batch_wo_counts.get((drv["id"], ym), 0) + 1
+            base["remarks"] = remarks or "Week Off"
+        elif action == "ev_issue_no_ride":
+            base["remarks"] = remarks or "EV issue — no replacement vehicle given (did not ride)"
+        elif action == "other_issue":
+            if len(remarks) < 2:
+                base["message"] = "Reason is required for Other Issue (min 2 chars)"
+                validated.append(base)
+                continue
+
+        base["amount"] = 0
+        base["state"] = "ready"
+        base["message"] = f"Ready · {monthly_sheet.ACTION_LABELS[action]} (₹0 rent)"
+        validated.append(base)
+
+    summary = {
+        "total_rows": len(validated),
+        "ready": sum(1 for r in validated if r["state"] == "ready"),
+        "ready_payments": sum(1 for r in validated if r["state"] == "ready" and r["action"] in ("paid", "ev_issue_replacement")),
+        "ready_week_offs": sum(1 for r in validated if r["state"] == "ready" and r["action"] == "week_off"),
+        "ready_ev_issues": sum(1 for r in validated if r["state"] == "ready" and r["action"] == "ev_issue_no_ride"),
+        "ready_other_issues": sum(1 for r in validated if r["state"] == "ready" and r["action"] == "other_issue"),
+        "skipped": sum(1 for r in validated if r["state"] == "skipped"),
+        "errors": sum(1 for r in validated if r["state"] == "error"),
+    }
+    return {"summary": summary, "rows": validated}
+
+
+async def _load_calendar_sheet_context(scope: str, driver_id: Optional[str], city: Optional[str], year: int, month: int, date_from: Optional[str], date_to: Optional[str]):
+    for dv in (date_from, date_to):
+        if dv:
+            try:
+                date.fromisoformat(dv)
+            except ValueError:
+                raise HTTPException(400, "Invalid date filter; expected YYYY-MM-DD")
+
+    if scope == "driver":
+        if not driver_id:
+            raise HTTPException(400, "driver_id is required when scope=driver")
+        drivers = [await get_driver_or_404(driver_id)]
+        label = f"{drivers[0].get('driver_code') or drivers[0]['id']} · {drivers[0]['name']}"
+        fname_part = re.sub(r"[^A-Za-z0-9_-]+", "_", drivers[0].get("driver_code") or drivers[0]["id"])
+    else:
+        f: dict[str, Any] = {"status": "Active"}
+        if city and city.lower() != "all":
+            f["city"] = city_query_filter(city)
+        drivers = await db.drivers.find(f, P).to_list(20000)
+        if not drivers:
+            raise HTTPException(404, f"No active drivers found for {city or 'selected filter'}")
+        label = f"{city} Fleet" if city and city.lower() != "all" else "All Cities Fleet"
+        fname_part = re.sub(r"[^A-Za-z0-9_-]+", "_", city if city and city.lower() != "all" else "all_cities")
+
+    d_ids = [d["id"] for d in drivers]
+    ym_prefix = f"{year:04d}-{month:02d}"
+    txns = await db.transactions.find(
+        {"driver_id": {"$in": d_ids}, "payment_date": {"$regex": f"^{ym_prefix}"}},
+        P,
+    ).sort("submitted_at", 1).to_list(200000)
+    by_dd: dict[tuple[str, str], list[dict]] = {}
+    for t in txns:
+        by_dd.setdefault((t["driver_id"], t["payment_date"]), []).append(t)
+    settings = await get_settings()
+    return drivers, by_dd, settings, label, fname_part, ym_prefix
+
+
+@api.get("/calendar-sheet/export")
+async def export_calendar_sheet(
+    scope: Literal["driver", "city"] = "driver",
+    driver_id: Optional[str] = None,
+    city: Optional[str] = None,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    group_by: Literal["date", "driver", "joining_date"] = "date",
+    only_unpaid: bool = False,
+    status_filter: Literal["all", "not_paid", "paid", "issues"] = "all",
+    user=Depends(require("staff", "accounts", "admin")),
+):
+    drivers, by_dd, settings, label, fname_part, ym_prefix = await _load_calendar_sheet_context(
+        scope, driver_id, city, year, month, date_from, date_to
+    )
+    vf: dict[str, Any] = {"status": {"$ne": "Inactive"}}
+    if scope == "driver" and drivers and drivers[0].get("city"):
+        vf["city"] = city_query_filter(drivers[0]["city"])
+    elif scope == "city" and city and city.lower() != "all":
+        vf["city"] = city_query_filter(city)
+    vehicles = await db.vehicles.find(vf, P).to_list(20000)
+
+    title = f"MyVolt Monthly Rent Sheet — {label} ({ym_prefix})"
+    xlsx_bytes = monthly_sheet.build_monthly_workbook(
+        title=title,
+        drivers=drivers,
+        txns_by_driver_date=by_dd,
+        year=year,
+        month=month,
+        today_dt=today_ist(),
+        allow_future=bool(settings.get("allow_future_dates")),
+        rent_start_fn=rent_start,
+        expected_between_fn=expected_between,
+        summarize_fn=summarize,
+        date_from=date_from,
+        date_to=date_to,
+        group_by=group_by,
+        only_unpaid=only_unpaid,
+        status_filter=status_filter,
+        vehicles=vehicles,
+    )
+    await audit(user, "Monthly rent sheet exported", "report", fname_part, None, title)
+    fname = f"myvolt_rent_{fname_part}_{ym_prefix}.xlsx".lower()
+    return Response(
+        xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/calendar-sheet/preview-rows")
+async def preview_calendar_sheet_rows(
+    scope: Literal["driver", "city"] = "driver",
+    driver_id: Optional[str] = None,
+    city: Optional[str] = None,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    group_by: Literal["date", "driver", "joining_date"] = "date",
+    only_unpaid: bool = False,
+    status_filter: Literal["all", "not_paid", "paid", "issues"] = "all",
+    user=Depends(require("staff", "accounts", "admin")),
+):
+    drivers, by_dd, settings, label, _, ym_prefix = await _load_calendar_sheet_context(
+        scope, driver_id, city, year, month, date_from, date_to
+    )
+    first = date(year, month, 1)
+    last = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+    d_start = max(first, date.fromisoformat(date_from)) if date_from else first
+    d_end = min(last, date.fromisoformat(date_to)) if date_to else last
+    if d_end < d_start:
+        d_start, d_end = first, last
+
+    today_dt = today_ist()
+    allow_future = bool(settings.get("allow_future_dates"))
+    date_list = [d_start + timedelta(days=i) for i in range((d_end - d_start).days + 1)]
+    sorted_drivers, pairs = monthly_sheet.build_driver_date_pairs(drivers, date_list, group_by, rent_start)
+
+    out_rows = []
+    r_num = 1
+    for d_obj, drv in pairs:
+        ds = d_obj.isoformat()
+        day_txns = by_dd.get((drv["id"], ds), [])
+        st_label, act_v, amt_v, utr_v, meth_v, veh_v, rem_v = monthly_sheet._day_status_snapshot(
+            drv, ds, d_obj, day_txns, today_dt, allow_future, rent_start
+        )
+        if not monthly_sheet.matches_status_filter(st_label, status_filter, only_unpaid):
+            continue
+        act_code = monthly_sheet.normalize_action(act_v)
+        already = st_label not in ("Not Paid", "Partial", "Rejected")
+        out_rows.append({
+            "row_num": r_num,
+            "date": ds,
+            "driver_id": drv["id"],
+            "driver_code": drv.get("driver_code") or drv["id"],
+            "driver_name": drv.get("name") or "",
+            "joining_date": drv.get("joining_date") or "",
+            "city": drv.get("city") or "",
+            "daily_rent": float(drv.get("daily_rent") or 0),
+            "current_status": st_label,
+            "action": act_code,
+            "action_label": act_v,
+            "amount": amt_v if amt_v is not None else "",
+            "utr": utr_v,
+            "method": meth_v or "UPI",
+            "vehicle_id": veh_v,
+            "remarks": rem_v,
+            "state": "skipped",
+            "message": st_label if already else "Select action or enter UTR",
+        })
+        r_num += 1
+
+    summary = {
+        "total_rows": len(out_rows),
+        "ready": 0,
+        "ready_payments": 0,
+        "ready_week_offs": 0,
+        "ready_ev_issues": 0,
+        "ready_other_issues": 0,
+        "skipped": len(out_rows),
+        "errors": 0,
+    }
+    return {"label": f"{label} ({ym_prefix})", "summary": summary, "rows": out_rows}
+
+
+@api.post("/calendar-sheet/parse")
+async def parse_calendar_sheet(
+    file: UploadFile = File(...),
+    driver_id: Optional[str] = Form(None),
+    user=Depends(require("staff", "accounts", "admin")),
+):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in ("xlsx", "xlsm", "csv"):
+        raise HTTPException(400, "Please upload an Excel (.xlsx / .xlsm) or CSV file")
+    data = await file.read()
+    if not data or len(data) > 20 * 1024 * 1024:
+        raise HTTPException(400, "File must be under 20 MB")
+    try:
+        raw_rows = monthly_sheet.extract_sheet_rows(data, file.filename or "sheet.xlsx")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"Could not read Excel file: {e}")
+
+    res = await _validate_calendar_sheet_rows(raw_rows, default_driver_id=driver_id)
+    return {"filename": file.filename, **res}
+
+
+@api.post("/calendar-sheet/validate")
+async def validate_calendar_sheet(body: CalendarSheetCommitIn, user=Depends(require("staff", "accounts", "admin"))):
+    return await _validate_calendar_sheet_rows(body.rows)
+
+
+@api.post("/calendar-sheet/commit")
+async def commit_calendar_sheet(body: CalendarSheetCommitIn, user=Depends(require("staff", "accounts", "admin"))):
+    checked = await _validate_calendar_sheet_rows(body.rows)
+    drivers_map = {d["id"]: d for d in await db.drivers.find({}, P).to_list(20000)}
+    vehicles_map = {v["vehicle_id"]: v for v in await db.vehicles.find({}, P).to_list(20000)}
+
+    payments_created = 0
+    week_offs_marked = 0
+    ev_issues_marked = 0
+    other_issues_marked = 0
+    errors: list[str] = []
+    txn_count = await db.transactions.count_documents({})
+
+    for r in checked["rows"]:
+        if r["state"] == "error":
+            errors.append(f"Row {r['row_num']} ({r['date']} · {r['driver_code']}): {r['message']}")
+            continue
+        if r["state"] != "ready":
+            continue
+
+        drv = drivers_map.get(r["driver_id"])
+        if not drv:
+            continue
+        act = r["action"]
+        ds = r["date"]
+
+        if act in ("paid", "ev_issue_replacement"):
+            veh = vehicles_map.get(r["vehicle_id"])
+            if not veh:
+                errors.append(f"Row {r['row_num']}: Vehicle {r['vehicle_id']} not found")
+                continue
+            utr_store = r["utr"] if r["method"] != "Cash" else (r["utr"] or f"CASH-{uuid.uuid4().hex[:6].upper()}")
+            txn_count += 1
+            txn = {
+                "id": f"TXN-{100001 + txn_count + uuid.uuid4().int % 1000}",
+                "driver_id": drv["id"],
+                "driver_name": drv["name"],
+                "driver_code": drv.get("driver_code"),
+                "vehicle_id": veh["vehicle_id"],
+                "vehicle_no": veh["reg_no"],
+                "city": drv["city"],
+                "payment_date": ds,
+                "amount": float(r["amount"]),
+                "utr": utr_store,
+                "method": r["method"],
+                "file_id": None,
+                "remarks": r["remarks"] or ("EV Issue · Replacement vehicle given" if act == "ev_issue_replacement" else "Bulk Excel upload"),
+                "is_split": False,
+                "status": "pending",
+                "source": "monthly_excel",
+                "submitted_by": user["id"],
+                "submitted_by_name": user["name"],
+                "submitted_at": now_iso(),
+                "verified_by": None,
+                "verified_by_name": None,
+                "verified_at": None,
+                "rejection_reason": None,
+                "rejection_history": [],
+                "corrections": [],
+                "version": 1,
+            }
+            while await db.transactions.find_one({"id": txn["id"]}):
+                txn["id"] = f"TXN-{uuid.uuid4().hex[:6].upper()}"
+            await db.transactions.insert_one(txn)
+            await audit(
+                user,
+                "Transaction submitted (Excel)",
+                "transaction",
+                txn["id"],
+                None,
+                f"{inr(txn['amount'])} · UTR {utr_store} · {r['method']} · {veh['vehicle_id']}",
+                drv["id"],
+            )
+            payments_created += 1
+            if act == "ev_issue_replacement":
+                entry = {
+                    "type": "ev_issue",
+                    "replacement_given": True,
+                    "replacement_vehicle_id": veh["vehicle_id"],
+                    "reason": txn["remarks"],
+                    "no_ride": False,
+                    "marked_by": user["id"],
+                    "marked_by_name": user["name"],
+                    "marked_at": now_iso(),
+                }
+                await db.drivers.update_one({"id": drv["id"]}, {"$set": {f"day_statuses.{ds}": entry}, "$pull": {"rent_free_dates": ds}})
+                ev_issues_marked += 1
+        else:
+            st_type = "ev_issue" if act == "ev_issue_no_ride" else act
+            entry = {
+                "type": st_type,
+                "replacement_given": False if st_type == "ev_issue" else None,
+                "replacement_vehicle_id": None,
+                "reason": r["remarks"],
+                "no_ride": True,
+                "marked_by": user["id"],
+                "marked_by_name": user["name"],
+                "marked_at": now_iso(),
+            }
+            await db.drivers.update_one(
+                {"id": drv["id"]},
+                {"$set": {f"day_statuses.{ds}": entry}, "$addToSet": {"rent_free_dates": ds}},
+            )
+            await audit(user, f"Calendar day marked ({st_type}, Excel)", "driver", drv["id"], None, f"{ds} · {r['remarks']}", drv["id"])
+            if st_type == "week_off":
+                week_offs_marked += 1
+            elif st_type == "ev_issue":
+                ev_issues_marked += 1
+            else:
+                other_issues_marked += 1
+
+    return {
+        "ok": True,
+        "payments_created": payments_created,
+        "week_offs_marked": week_offs_marked,
+        "ev_issues_marked": ev_issues_marked,
+        "other_issues_marked": other_issues_marked,
+        "skipped": checked["summary"]["skipped"],
+        "errors": errors,
+    }
+
+
 # ---------- files ----------
 ALLOWED = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
@@ -1757,11 +2333,11 @@ async def get_txn_or_404(tid):
 async def validate_payment(method, utr, file_id, exclude_id=None):
     utr = utr.strip().upper()
     if method != "Cash":
-        if len(utr) < 6:
-            raise HTTPException(400, "Enter a valid UTR / transaction reference (min 6 characters)")
-        dup = await db.transactions.find_one({"utr": utr, "status": {"$ne": "rejected"}, "id": {"$ne": exclude_id}}, P)
+        if len(_utr_key(utr)) < 6:
+            raise HTTPException(400, "Enter a valid UTR / transaction reference (min 6 alphanumeric characters)")
+        dup = await find_duplicate_utr(utr, exclude_id=exclude_id)
         if dup:
-            raise HTTPException(409, f"This UTR is already used in {dup['id']} ({dup['driver_name']}, {dup['payment_date']})")
+            raise HTTPException(409, _dup_utr_msg(utr, dup))
     if file_id and not await db.files.find_one({"id": file_id, "is_deleted": False}):
         raise HTTPException(400, "Screenshot not found, please upload again")
     return utr or f"CASH-{uuid.uuid4().hex[:6].upper()}"
@@ -1905,6 +2481,10 @@ async def approve_txn(tid: str, user=Depends(require("accounts", "admin"))):
         raise HTTPException(403, "You cannot approve a payment you entered yourself")
     if user["id"] == t.get("amount_modified_by"):
         raise HTTPException(403, "You cannot approve a payment where you changed the payment amount")
+    if t.get("method") != "Cash" and t.get("utr"):
+        dup = await find_duplicate_utr(t["utr"], exclude_id=tid)
+        if dup:
+            raise HTTPException(409, _dup_utr_msg(t["utr"], dup))
     upd = {"status": "approved", "verified_by": user["id"], "verified_by_name": user["name"], "verified_at": now_iso()}
     if not await db.transactions.find_one_and_update({"id": tid, "status": "pending"}, {"$set": upd}):
         raise HTTPException(409, "This payment was already processed by someone else")
@@ -2013,9 +2593,9 @@ async def update_txn_utr(tid: str, body: UtrUpdateIn, user=Depends(require("acco
     if not new_utr or len(new_utr) < 3:
         raise HTTPException(400, "Valid UTR reference is required (min 3 characters)")
     if new_utr != (t.get("utr") or "").strip().upper():
-        dup = await db.transactions.find_one({"utr": new_utr, "id": {"$ne": tid}, "status": {"$ne": "rejected"}})
+        dup = await find_duplicate_utr(new_utr, exclude_id=tid)
         if dup:
-            raise HTTPException(409, f"UTR {new_utr} has already been used in transaction {dup['id']} ({dup.get('driver_name')})")
+            raise HTTPException(409, _dup_utr_msg(new_utr, dup))
         old_utr = t.get("utr")
         reason_str = (body.reason or "").strip() or "UTR updated by Accounts"
         update_fields = {
@@ -2713,7 +3293,7 @@ async def driver_payment_receipt(payment_id: str = _Form(...), image: UploadFile
         raise HTTPException(400, "This image does not look like a payment receipt. Please upload a valid UPI payment screenshot.")
     utr = (scan.get("utr") or "").strip().upper()
     if utr:
-        dup = await db.transactions.find_one({"utr": utr, "status": {"$ne": "rejected"}}, P)
+        dup = await find_duplicate_utr(utr)
         if dup:
             raise HTTPException(409, "This payment screenshot was already submitted. Please upload the new payment.")
     path = f"{APP_NAME}/screenshots/driver-app/{drv['id']}/{uuid.uuid4()}.{ext}"

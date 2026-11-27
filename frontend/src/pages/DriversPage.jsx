@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, Download, Loader2, MapPin, Trash2, X } from "lucide-react";
+import { Plus, CalendarDays, Pencil, SlidersHorizontal, ArrowLeftRight, FileUp, FileSpreadsheet, Download, Loader2, MapPin, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DriverFormDialog, AdjustmentsDialog } from "@/components/DriverDialogs";
 import { VehicleAssignDialog } from "@/components/Vehicles";
 import { ImportDialog } from "@/components/ImportDialog";
+import { MonthlySheetDialog } from "@/components/MonthlySheetDialog";
 import { api, downloadBlob, errMsg } from "@/lib/api";
 import { useUser } from "@/context/UserContext";
 import { inr, todayIso, FLEET_CITIES, normalizeCity } from "@/lib/format";
@@ -25,6 +26,7 @@ export default function DriversPage() {
   const [veh, setVeh] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [status, setStatus] = useState("all");
   const [city, setCity] = useState(() => new URLSearchParams(window.location.search).get("city") || "all");
@@ -118,6 +120,10 @@ export default function DriversPage() {
         subtitle={`${rows.length} drivers · Manage profiles, daily rent and vehicle assignments`}
         actions={
           <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
+            <Button variant="outline" onClick={() => setSheetOpen(true)} data-testid="drivers-monthly-sheet-button">
+              <FileSpreadsheet className="mr-1.5 h-4 w-4 text-[#047857]" />
+              Monthly Excel Sheet
+            </Button>
             <Button variant="outline" onClick={exportXlsx} disabled={exporting} data-testid="export-drivers-button">
               {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
               Export Excel
@@ -271,6 +277,13 @@ export default function DriversPage() {
       <AdjustmentsDialog open={!!adj} onOpenChange={(o) => !o && setAdj(null)} driver={adj} onSaved={load} />
       <VehicleAssignDialog open={!!veh} onOpenChange={(o) => !o && setVeh(null)} driver={veh} onSaved={load} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} defaultMode="drivers" onImported={load} />
+      <MonthlySheetDialog
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        defaultScope="city"
+        defaultCity={city !== "all" ? city : "Coimbatore"}
+        onApplied={load}
+      />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent data-testid="driver-delete-dialog">
           <AlertDialogHeader>

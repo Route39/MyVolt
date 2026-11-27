@@ -24,7 +24,7 @@ USERS = [
 
 DRIVERS = [
     ("Rajesh Kumar", "9845012301", "KA 01 AB 3901", "Bengaluru", 75, 75, 800),
-    ("Mohammed Irfan", "9845012302", "KA 05 MN 3912", "Bengaluru", 60, 55, 750),
+    ("Mohammed Irfan", "9845012302", "KA 05 MN 3912", "Bengaluru", 60, 55, 850),
     ("Venkatesh Reddy", "9848012303", "TS 09 EZ 3920", "Hyderabad", 90, 90, 900),
     ("Arun Prakash", "9840012304", "TN 10 BK 3933", "Chennai", 40, 34, 700),
     ("Sandeep Singh", "9845012305", "KA 03 HJ 3947", "Bengaluru", 25, 18, 850),

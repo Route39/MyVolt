@@ -14,12 +14,12 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const PREVIEW_PAGE_SIZE = 50;
 const CHUNK_SIZE = 100;
 
-const blankRow = (city = "Bangalore", rent = 700) => ({
+const blankRow = (city = "Bangalore", rent = 850) => ({
   vehicle_id: "",
   name: "",
   mobile: "",
   city,
-  daily_rent: Number(rent) || 700,
+  daily_rent: Number(rent) || 850,
   joining_date: todayIso(),
   handover_date: "",
   rent_start_date: "",
@@ -39,7 +39,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
   const [mode, setMode] = useState(defaultMode);
   const [updateExisting, setUpdateExisting] = useState(true);
   const [defaultCity, setDefaultCity] = useState("Bangalore");
-  const [defaultRent, setDefaultRent] = useState("700");
+  const [defaultRent, setDefaultRent] = useState("850");
   const [filename, setFilename] = useState("");
   const [rows, setRows] = useState([]);
   const [rawPreview, setRawPreview] = useState("");
@@ -152,7 +152,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
         return {
           ...r,
           city: r.city || defaultCity || "Bengaluru",
-          daily_rent: hasRent ? r.daily_rent : Number(defaultRent) || 700,
+          daily_rent: hasRent ? r.daily_rent : Number(defaultRent) || 850,
           has_daily_rent: hasRent ? r.has_daily_rent : true,
         };
       })
@@ -187,7 +187,7 @@ export const ImportDialog = ({ open, onOpenChange, defaultMode = "drivers_and_ve
           rows: chunk.map((r) => ({
             ...r,
             city: (r.city || defaultCity || "Bengaluru").trim(),
-            daily_rent: Number(r.daily_rent) || Number(defaultRent) || 700,
+            daily_rent: Number(r.daily_rent) || Number(defaultRent) || 850,
             joining_date: r.joining_date || "",
             has_daily_rent: r.has_daily_rent,
             has_joining_date: r.has_joining_date,

@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Download, Loader2, Search, ChevronRight } from "lucide-react";
+import { Loader2, Search, ChevronRight, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader, StatCard, Progress, DateStepper, SortTh, Pager, SkeletonRows, EmptyState } from "@/components/kit";
 import { StatusPill } from "@/components/StatusPill";
-import { api, downloadBlob } from "@/lib/api";
+import { MonthlySheetDialog } from "@/components/MonthlySheetDialog";
+import { api } from "@/lib/api";
 import { inr, todayIso } from "@/lib/format";
 
 const STATUSES = [["all", "All statuses"], ["verified", "Verified"], ["pending", "Pending"], ["unpaid", "Unpaid"], ["rejected", "Rejected"], ["partial", "Partial"], ["inactive", "Inactive"], ["not_started", "Not started"], ["rent_free", "Rent free"]];
@@ -64,12 +65,18 @@ export default function AllDriversPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const day = params.get("date") || todayIso();
-  const [f, setF] = useState({ q: "", city: "all", status: "all", staff_id: "all", active: "all" });
+  const [f, setF] = useState(() => ({
+    q: params.get("q") || "",
+    city: params.get("city") || "all",
+    status: params.get("status") || "all",
+    staff_id: "all",
+    active: "all",
+  }));
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [staff, setStaff] = useState([]);
   const [cities, setCities] = useState([]);
 
@@ -90,18 +97,6 @@ export default function AllDriversPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const exportXlsx = async () => {
-    setExporting(true);
-    try {
-      const r = await api.get("/board", { params: { ...params_, format: "xlsx" }, responseType: "blob" });
-      downloadBlob(r.data, `route39_all_drivers_${day}.xlsx`);
-    } catch {
-      toast.error("Export failed");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="ALL DRIVERS" subtitle="Daily fleet rent collection overview." actions={<DateStepper value={day} onChange={(d) => setParams({ date: d })} />} />
@@ -109,8 +104,8 @@ export default function AllDriversPage() {
       <section className="r-card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
           <Filters f={f} setF={setF} staff={staff} cities={cities} searching={loading} />
-          <Button variant="outline" className="h-9 w-full sm:w-auto" onClick={exportXlsx} disabled={exporting} data-testid="board-export">
-            {exporting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}Export Excel
+          <Button variant="outline" className="h-9 w-full sm:w-auto" onClick={() => setSheetOpen(true)} data-testid="board-monthly-sheet-button">
+            <FileSpreadsheet className="mr-1.5 h-4 w-4 text-[#047857]" />Monthly Excel Sheet
           </Button>
         </div>
         <div className="max-h-[62vh] overflow-auto">
@@ -142,6 +137,14 @@ export default function AllDriversPage() {
         </div>
         {data && <Pager page={page} pageSize={25} total={data.total} onPage={setPage} testId="board-pager" />}
       </section>
+      <MonthlySheetDialog
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        defaultScope="city"
+        defaultCity={f.city !== "all" ? f.city : "Coimbatore"}
+        defaultMonth={day.slice(0, 7)}
+        onApplied={() => setParams({ date: day })}
+      />
     </div>
   );
 }

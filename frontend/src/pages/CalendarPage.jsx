@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { CalendarSearch } from "lucide-react";
+import { CalendarSearch, FileSpreadsheet } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { DriverSearch } from "@/components/DriverSearch";
 import { DriverCard } from "@/components/DriverCard";
 import { RentSummary } from "@/components/RentSummary";
 import { RentCalendar } from "@/components/RentCalendar";
 import { PaymentDialog } from "@/components/PaymentDialog";
 import { DayDialog } from "@/components/DayDialog";
+import { MonthlySheetDialog } from "@/components/MonthlySheetDialog";
 import { TransactionsTable, HISTORY_COLS } from "@/components/TransactionsTable";
 import { VehicleAssignDialog, AssignmentHistory } from "@/components/Vehicles";
 import { DriverFormDialog } from "@/components/DriverDialogs";
@@ -56,6 +58,7 @@ export default function CalendarPage() {
   const [dayOpen, setDayOpen] = useState(null);
   const [changeVehicle, setChangeVehicle] = useState(false);
   const [editDriver, setEditDriver] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const monthKey = `${ym.y}-${String(ym.m + 1).padStart(2, "0")}`;
@@ -103,7 +106,16 @@ export default function CalendarPage() {
   return (
     <div className="space-y-4 fade-up">
       <PageHeader title="Rent Calendar" subtitle="Select a driver, click a date and record the payment for Accounts verification"
-        actions={<div className="w-full sm:w-[420px]"><DriverSearch value={driver && driver.id === driverId ? driver : null} onSelect={(d) => go(d.id)} /></div>} />
+        actions={
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {hasRole("staff", "accounts", "admin") && (
+              <Button variant="outline" className="h-9 shrink-0" onClick={() => setSheetOpen(true)} data-testid="calendar-monthly-sheet-button">
+                <FileSpreadsheet className="mr-1.5 h-4 w-4 text-[#047857]" />Monthly Excel
+              </Button>
+            )}
+            <div className="w-full sm:w-[380px]"><DriverSearch value={driver && driver.id === driverId ? driver : null} onSelect={(d) => go(d.id)} /></div>
+          </div>
+        } />
       {!driverId && <QuickPicks onPick={(d) => go(d.id)} />}
       {cal && (
         <div className="grid gap-4 w1200:grid-cols-[300px_1fr] w1440:grid-cols-[340px_1fr] w1920:grid-cols-[380px_1fr] w1200:grid-rows-[auto_1fr]">
@@ -139,6 +151,15 @@ export default function CalendarPage() {
       )}
       <VehicleAssignDialog open={changeVehicle} onOpenChange={setChangeVehicle} driver={driver} onSaved={load} />
       <DriverFormDialog open={editDriver} onOpenChange={setEditDriver} driver={driver} onSaved={load} />
+      <MonthlySheetDialog
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        defaultScope={driver ? "driver" : "city"}
+        defaultDriver={driver}
+        defaultCity={driver?.city || "Coimbatore"}
+        defaultMonth={monthKey}
+        onApplied={load}
+      />
       <PaymentDialog open={!!entry} onOpenChange={(o) => !o && setEntry(null)} mode={entry?.mode} driver={driver}
         date={entry?.date} txn={entry?.txn} weekOffsUsed={cal?.week_offs_used || 0} weekOffLimit={cal?.week_off_limit || 3} onDone={load} />
       <DayDialog open={!!dayOpen} onOpenChange={(o) => !o && setDayOpen(null)} day={dayOpen}

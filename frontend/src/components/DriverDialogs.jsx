@@ -39,7 +39,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               driver_code: driver.driver_code || "",
               status: driver.status || "Active",
             }
-          : { ...EMPTY, joining_date: today, handover_date: today, rent_start_date: today }
+          : { ...EMPTY, joining_date: today, handover_date: today, rent_start_date: today, daily_rent: "850" }
       );
       setConfirmDelete(false);
     }
@@ -157,7 +157,7 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                 required
                 value={f.daily_rent}
                 onChange={set("daily_rent")}
-                placeholder="Daily rent (₹)"
+                placeholder="Daily rent (₹, e.g. 850)"
                 data-testid="driver-form-rent"
               />
             </F>

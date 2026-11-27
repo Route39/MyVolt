@@ -329,7 +329,7 @@ def clean_date(val: Any, fallback_iso: str) -> str:
     return fallback_iso
 
 
-def clean_rent(val: Any, default: float = 700.0) -> float:
+def clean_rent(val: Any, default: float = 850.0) -> float:
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return float(val) if val > 0 else default
     s = str(val or "").replace(",", "").strip()
@@ -461,7 +461,7 @@ def _empty_row(today_str: str) -> Dict[str, Any]:
         "name": "",
         "mobile": "",
         "city": "Bangalore",
-        "daily_rent": 700.0,
+        "daily_rent": 850.0,
         "joining_date": today_str,
         "handover_date": "",
         "rent_start_date": "",
@@ -519,7 +519,7 @@ def _row_from_mapping(
     item["city"] = clean_city(raw.get("city"), default="Bengaluru")
     item["has_daily_rent"] = not _is_blank(raw.get("daily_rent"))
     item["has_joining_date"] = not _is_blank(raw.get("joining_date"))
-    item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=700.0)
+    item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=850.0)
     joining = clean_date(raw.get("joining_date"), today_str) if item["has_joining_date"] else (today_str if name else "")
     item["joining_date"] = joining
     item["handover_date"] = clean_date(raw.get("handover_date"), joining) if not _is_blank(raw.get("handover_date")) else ""
@@ -818,7 +818,7 @@ def _parse_kv_blocks(text: str, today_str: str) -> List[Dict[str, Any]]:
         item["name"] = re.sub(r"\s+", " ", str(raw.get("name") or "").strip())
         item["mobile"] = clean_mobile(raw.get("mobile"))
         item["city"] = clean_city(raw.get("city"), default="Bengaluru")
-        item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=700.0)
+        item["daily_rent"] = clean_rent(raw.get("daily_rent"), default=850.0)
         item["joining_date"] = clean_date(raw.get("joining_date"), today_str)
         item["reg_no"] = clean_reg_no(raw.get("reg_no"))
         item["vehicle_type"] = str(raw.get("vehicle_type") or "").strip()
@@ -886,7 +886,7 @@ def _parse_text_lines(text: str, today_str: str) -> List[Dict[str, Any]]:
 
         rent_m = CURRENCY_RENT_RX.search(work) or PLAIN_RENT_RX.search(work)
         if rent_m:
-            item["daily_rent"] = clean_rent(rent_m.group(1), default=700.0)
+            item["daily_rent"] = clean_rent(rent_m.group(1), default=850.0)
             work = work.replace(rent_m.group(0), " ")
 
         # Strip serial numbers, punctuation, currency leftovers to isolate driver name
