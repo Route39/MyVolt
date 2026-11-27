@@ -2,7 +2,7 @@ import { EditTxnDialog } from "@/components/EditTxnDialog";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, CalendarDays, Check, X, PencilLine, RotateCcw, Info } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, X, PencilLine, RotateCcw, Info, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -148,6 +148,19 @@ const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUt
   const canEditUtr = ["accounts", "admin"].includes(user.role);
   const own = t.submitted_by === user.id || t.last_modified_by === user.id;
   const selfBlock = false;
+  const navDel = useNavigate();
+  const [delOpen, setDelOpen] = useState(false);
+  const canDelete = user.role === "admin" || (t.status === "pending" && t.submitted_by === user.id);
+  const doDelete = async () => {
+    setDelOpen(false);
+    try {
+      await api.delete(`/transactions/${t.id}`);
+      toast.success("Payment deleted");
+      navDel(-1);
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
   return (
     <div className="space-y-2">
       {canVerify && selfBlock && <div className="flex gap-2 rounded-md bg-muted p-3 text-xs"><Info className="h-4 w-4 shrink-0" />You entered this payment, so another person must verify it.</div>}
@@ -162,13 +175,28 @@ const Actions = ({ t, user, onApprove, onReject, onCorrect, onResubmit, onEditUt
           <PencilLine className="mr-1.5 h-4 w-4" />Edit UTR Number
         </Button>
       )}
-      {canEditUtr && <EditTxnDialog t={t} onSaved={onEdited} />}
+      {(canEditUtr || (t.status === "pending" && t.submitted_by === user.id)) && <EditTxnDialog t={t} onSaved={onEdited} />}
       {t.status === "rejected" && (user.role === "admin" || own) && (
         <Button className="w-full" onClick={onResubmit} data-testid="resubmit-payment-button"><RotateCcw className="mr-1.5 h-4 w-4" />Correct & Resubmit</Button>
       )}
       {["accounts", "admin"].includes(user.role) && t.status !== "rejected" && (
         <Button variant="outline" className="w-full" onClick={onCorrect} data-testid="admin-correct-button"><PencilLine className="mr-1.5 h-4 w-4" />Authorised correction</Button>
       )}
+      {canDelete && (
+        <Button variant="outline" className="w-full border-red-600 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setDelOpen(true)} data-testid="delete-payment-button"><Trash2 className="mr-1.5 h-4 w-4" />Delete payment</Button>
+      )}
+      <AlertDialog open={delOpen} onOpenChange={setDelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this payment?</AlertDialogTitle>
+            <AlertDialogDescription>{`${t.id} · ₹${t.amount} · UTR ${t.utr}. This cannot be undone.`}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={doDelete} data-testid="delete-payment-confirm">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -6,7 +6,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { useUser } from "@/context/UserContext";
 import { fmtDate, inr } from "@/lib/format";
 
-export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit, onRemoveStatus }) => {
+export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit, onRemoveStatus, onDeleteTxn }) => {
   const nav = useNavigate();
   const { user, hasRole } = useUser();
   if (!day) return null;
@@ -62,6 +62,11 @@ export const DayDialog = ({ open, onOpenChange, day, onAddSplit, onResubmit, onR
                 {t.status === "rejected" && (user.role === "admin" || t.submitted_by === user.id) && (
                   <Button size="sm" onClick={() => onResubmit(t)} data-testid={`day-txn-resubmit-${t.id}`}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />Correct & Resubmit
+                  </Button>
+                )}
+                {onDeleteTxn && (user.role === "admin" || (t.status === "pending" && t.submitted_by === user.id)) && (
+                  <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => onDeleteTxn(t)} data-testid={`day-txn-delete-${t.id}`}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete
                   </Button>
                 )}
               </div>

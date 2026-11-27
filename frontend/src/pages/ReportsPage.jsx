@@ -70,15 +70,15 @@ const ReportBuilder = () => {
       <div className="r-card min-w-0 space-y-3 p-3 sm:p-4">
         <div className="flex flex-wrap items-end gap-3">
           {kind === "daily" ? (
-            <div className="space-y-1"><Label className="text-xs">Date</Label><DateField value={p.date} onChange={(v) => v && setP({ ...p, date: v })} testId="report-date" /></div>
+            <div className="flex flex-col gap-1"><Label className="block text-xs">Date</Label><DateField value={p.date} onChange={(v) => v && setP({ ...p, date: v })} testId="report-date" /></div>
           ) : (
             <>
-              <div className="space-y-1"><Label className="text-xs">From</Label><DateField value={p.date_from} onChange={(v) => setP({ ...p, date_from: v })} testId="report-date-from" /></div>
-              <div className="space-y-1"><Label className="text-xs">To</Label><DateField value={p.date_to} onChange={(v) => setP({ ...p, date_to: v })} testId="report-date-to" /></div>
+              <div className="flex flex-col gap-1"><Label className="block text-xs">From</Label><DateField value={p.date_from} onChange={(v) => setP({ ...p, date_from: v })} testId="report-date-from" /></div>
+              <div className="flex flex-col gap-1"><Label className="block text-xs">To</Label><DateField value={p.date_to} onChange={(v) => setP({ ...p, date_to: v })} testId="report-date-to" /></div>
             </>
           )}
           {kind !== "staff_performance" && (
-            <div className="space-y-1"><Label className="text-xs">City</Label>
+            <div className="flex flex-col gap-1"><Label className="block text-xs">City</Label>
               <Select value={p.city} onValueChange={(v) => setP({ ...p, city: v })}><SelectTrigger className="h-9 w-full w425:w-[150px]" data-testid="report-city"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="all">All cities</SelectItem>{cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select>
             </div>

@@ -16,6 +16,7 @@ import { useUser } from "@/context/UserContext";
 import { PageHeader } from "@/components/kit";
 import { api, errMsg } from "@/lib/api";
 import { toast } from "sonner";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 const parseMonth = (s) => {
   const [y, m] = (s || "").split("-").map(Number);
@@ -91,6 +92,20 @@ export default function CalendarPage() {
     if (!hasRole("staff", "accounts", "admin")) return toast.info("No payment entered for this date");
     setEntry({ mode: "new", date: day.date });
   };
+  const [confirmTxn, setConfirmTxn] = useState(null);
+  const onDeleteTxn = (t) => setConfirmTxn(t);
+  const doDeleteTxn = async () => {
+    const t = confirmTxn;
+    setConfirmTxn(null);
+    try {
+      await api.delete(`/transactions/${t.id}`);
+      toast.success("Payment deleted");
+      setDayOpen(null);
+      load();
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
   const onRemoveStatus = async (day) => {
     try {
       await api.delete(`/drivers/${driver.id}/day-status/${day.date}`);
@@ -163,13 +178,27 @@ export default function CalendarPage() {
       <PaymentDialog open={!!entry} onOpenChange={(o) => !o && setEntry(null)} mode={entry?.mode} driver={driver}
         date={entry?.date} txn={entry?.txn} weekOffsUsed={cal?.week_offs_used || 0} weekOffLimit={cal?.week_off_limit || 3} onDone={load} />
       <DayDialog open={!!dayOpen} onOpenChange={(o) => !o && setDayOpen(null)} day={dayOpen}
-        onRemoveStatus={onRemoveStatus}
+        onRemoveStatus={onRemoveStatus} onDeleteTxn={onDeleteTxn}
         onAddSplit={() => { setEntry({ mode: "split", date: dayOpen.date }); setDayOpen(null); }}
         onResubmit={async (t) => {
           const { data } = await api.get(`/transactions/${t.id}`);
           setEntry({ mode: "resubmit", date: dayOpen.date, txn: data });
           setDayOpen(null);
         }} />
+      <AlertDialog open={!!confirmTxn} onOpenChange={(o) => !o && setConfirmTxn(null)}>
+        <AlertDialogContent data-testid="delete-txn-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this payment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmTxn && `${confirmTxn.id} · ₹${confirmTxn.amount} · UTR ${confirmTxn.utr}. This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={doDeleteTxn} data-testid="delete-txn-confirm">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

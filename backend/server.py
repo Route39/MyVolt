@@ -2207,7 +2207,10 @@ async def get_file(fid: str, user=Depends(current_user)):
     rec = await db.files.find_one({"id": fid, "is_deleted": False}, P)
     if not rec:
         raise HTTPException(404, "File not found")
-    data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    try:
+        data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    except FileNotFoundError:
+        raise HTTPException(404, "Screenshot file is missing")
     return Response(content=data, media_type=rec["content_type"],
                     headers={"Content-Disposition": 'inline; filename="%s"' % ((rec.get("original_filename") or "screenshot").encode("ascii", "ignore").decode().replace('"', '') or "screenshot")})
 
@@ -2314,7 +2317,10 @@ async def scan_uploaded_screenshot(body: ScanIn, user=Depends(require("staff", "
         raise HTTPException(400, "Screenshot not found, please upload again")
     ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(rec.get("content_type"), "jpg")
     try:
-        data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+        try:
+            data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+        except FileNotFoundError:
+            raise HTTPException(404, "Screenshot file is missing")
         res = await asyncio.wait_for(asyncio.to_thread(_scan_payment_screenshot_sync, data, ext), timeout=90)
     except Exception as e:                                    # scanner missing / crashed: never block the payment form
         logger.warning("Payment screenshot scan failed: %s", e)
@@ -2470,6 +2476,22 @@ async def get_txn(tid: str, user=Depends(current_user)):
     t["vehicle"] = await db.vehicles.find_one({"vehicle_id": t["vehicle_id"]}, P) if t.get("vehicle_id") else None
     t["audit"] = await db.audit_logs.find({"entity_id": tid}, P).sort("ts", -1).to_list(200)
     return t
+@api.delete("/transactions/{tid}")
+async def delete_txn(tid: str, user=Depends(require("staff", "accounts", "admin"))):
+    t = await get_txn_or_404(tid)
+    if user["role"] != "admin":
+        if t["status"] != "pending":
+            raise HTTPException(403, "Only Admin can delete a verified or rejected payment")
+        if t["submitted_by"] != user["id"]:
+            raise HTTPException(403, "You can delete only payments you entered")
+    await db.transactions.delete_one({"id": tid})
+    if t.get("due_amount") is not None:
+        left = await db.transactions.count_documents({"driver_id": t["driver_id"], "payment_date": t["payment_date"], "due_amount": {"$ne": None}})
+        if not left:
+            await db.drivers.update_one({"id": t["driver_id"]}, {"$unset": {f"day_expected.{t['payment_date']}": ""}})
+    await audit(user, "Transaction deleted", "transaction", tid,
+                f"{inr(t['amount'])} · UTR {t.get('utr')} · {t['payment_date']} · {t['status']}", None, t["driver_id"])
+    return {"ok": True, "id": tid}
 
 
 @api.post("/transactions/{tid}/approve")
@@ -2572,8 +2594,10 @@ async def resubmit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "a
 
 
 @api.put("/transactions/{tid}/edit")
-async def edit_txn(tid: str, body: TxnEdit, user=Depends(require("accounts", "admin"))):
+async def edit_txn(tid: str, body: TxnEdit, user=Depends(require("staff", "accounts", "admin"))):
     t = await get_txn_or_404(tid)
+    if user["role"] == "staff" and (t["status"] != "pending" or t["submitted_by"] != user["id"]):
+        raise HTTPException(403, "Staff can edit only their own pending payments")
     changes = await apply_edit(t, body, user, " (edit)")
     if not changes:
         return await get_txn(tid, user)
@@ -3335,7 +3359,10 @@ async def driver_file(fid: str, drv=Depends(current_app_driver)):
     rec = await db.files.find_one({"id": fid, "owner_driver_id": drv["id"], "is_deleted": False}, P)
     if not rec:
         raise HTTPException(404, "File not found")
-    data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    try:
+        data, _ = await asyncio.to_thread(storage.get_object, rec["storage_path"])
+    except FileNotFoundError:
+        raise HTTPException(404, "Screenshot file is missing")
     return Response(content=data, media_type=rec["content_type"])
 # ================== END DRIVER APP ==================
 
