@@ -1105,6 +1105,35 @@
   resolved "https://registry.npmjs.org/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz"
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
+"@capacitor/camera@^8.2.4":
+  version "8.2.6"
+  resolved "https://registry.yarnpkg.com/@capacitor/camera/-/camera-8.2.6.tgz#04759cdfeee4dbb15233bb0e6e7c9d6b8df13be3"
+  integrity sha512-jzvrMrEKs5ACw1/HmcgN5XwSlXYF+/xRKzWtBUESQs5ePf3tTfnR8Nk/p+aSEgay8yZEI0aZQ+2/1xDwMCdV2w==
+
+"@capacitor/core@^8.6.0":
+  version "8.6.3"
+  resolved "https://registry.yarnpkg.com/@capacitor/core/-/core-8.6.3.tgz#e38873e2a486e2fe4dd2061a9cc9d0b4ae32e8dc"
+  integrity sha512-WJ/DM2OTriEED5sI4jUyJU0NL3QJ/YenS2+SepW/nghMA5ixFJhm8NqGWdqDYYg+eRtJkjD8PcXtIxy4zTP0PA==
+  dependencies:
+    tslib "^2.1.0"
+
+"@capacitor/geolocation@^8.2.2":
+  version "8.2.5"
+  resolved "https://registry.yarnpkg.com/@capacitor/geolocation/-/geolocation-8.2.5.tgz#bc6e214202f3b0d8c3a4bb3d28ae6b0bb598ffea"
+  integrity sha512-DFhbXDsp/5HrKmgLd12w25ERhDzesTqU4vKRS/8a7BLaVV8tt/lkDfqt6Fzqka7Vino6uU9cPFR9v/zMfZ1YFQ==
+  dependencies:
+    "@capacitor/synapse" "^1.0.4"
+
+"@capacitor/preferences@^8.0.1":
+  version "8.0.1"
+  resolved "https://registry.yarnpkg.com/@capacitor/preferences/-/preferences-8.0.1.tgz#9924997d694242a5f378e9ddba9711ad1ca611dc"
+  integrity sha512-T6no3ebi79XJCk91U3Jp/liJUwgBdvHR+s6vhvPkPxSuch7z3zx5Rv1bdWM6sWruNx+pViuEGqZvbfCdyBvcHQ==
+
+"@capacitor/synapse@^1.0.4":
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/@capacitor/synapse/-/synapse-1.0.4.tgz#c6beb33119d9656b1f04cb7783989fb78933ef6d"
+  integrity sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==
+
 "@craco/craco@7.1.0":
   version "7.1.0"
   resolved "https://registry.npmjs.org/@craco/craco/-/craco-7.1.0.tgz"
@@ -4351,6 +4380,11 @@ caniuse-lite@^1.0.0, caniuse-lite@^1.0.30001646, caniuse-lite@^1.0.30001810, can
   version "1.0.30001826"
   resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001826.tgz#6c2cc43e4858e54d6f7200fa87b4de93cb39aa77"
   integrity sha512-wTB+9tIbLro/BCXwLuNV1meHE4L9dS6dArMDwgYfNBPMYScqClHyGunhkCSDtHhe/69Xl0sHlKgBVZ+fNsYtWA==
+
+capacitor-razorpay@^1.3.0:
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/capacitor-razorpay/-/capacitor-razorpay-1.3.0.tgz#849af34a701bca3fd1137f0a4e8c388e850a430d"
+  integrity sha512-QebInXE0DOEOnhYM1BTlrlRjLvK5ERdbHDjsC2qudLCDTfy86vaELe39v1lW1lriDZ8ge94Tt/24HkqNIhbBWw==
 
 case-sensitive-paths-webpack-plugin@^2.4.0:
   version "2.4.0"

@@ -220,6 +220,8 @@ class DriverIn(BaseModel):
     handover_date: Optional[str] = None
     rent_start_date: Optional[str] = None
     daily_rent: float = Field(gt=0)
+    deposit_amount: float = Field(default=0, ge=0)
+    deposit_paid: float = Field(default=0, ge=0)
     status: Literal["Active", "Inactive", "Suspended"] = "Active"
     rent_free_dates: List[str] = []
 
@@ -3211,6 +3213,17 @@ def _driver_rental(drv):
             "vehicle_id": drv.get("current_vehicle_id")}
 
 
+def _driver_deposit(drv):
+    amt = float(drv.get("deposit_amount") or 0)
+    if amt <= 0:
+        return None
+    paid = min(float(drv.get("deposit_paid") or 0), amt)
+    rem = round(amt - paid, 2)
+    return {"amount": amt, "paid_amount": paid, "remaining_amount": rem, "remaining_due": rem,
+            "status": "paid" if rem <= 0 else ("partial" if paid > 0 else "pending"),
+            "action_required": False, "next_payment_date": None}
+
+
 @api.get("/driver/me")
 async def driver_me(drv=Depends(current_app_driver)):
     today = today_ist().isoformat()
@@ -3228,7 +3241,7 @@ async def driver_me(drv=Depends(current_app_driver)):
             "joining_date": drv.get("joining_date"), "rent_start_date": drv.get("rent_start_date"),
             "paid_leaves": drv.get("paid_leaves", []),
         },
-        "rental": _driver_rental(drv), "account": await _driver_account(drv), "deposit": None,
+        "rental": _driver_rental(drv), "account": await _driver_account(drv), "deposit": _driver_deposit(drv),
         "admin_block": "temporary" if suspended else None,
         "admin_block_reason": (drv.get("app_admin_block_reason") or "Suspended by Route39") if suspended else None,
         "week_off": None, "package_due": None,
@@ -3365,6 +3378,277 @@ async def driver_file(fid: str, drv=Depends(current_app_driver)):
         raise HTTPException(404, "Screenshot file is missing")
     return Response(content=data, media_type=rec["content_type"])
 # ================== END DRIVER APP ==================
+
+
+# ================= driver app: attendance, week-off, leave, account deletion (ported from My-Volt-App) =================
+APP_WEEK_OFF_MAX = 3
+APP_MAX_SELFIE_BYTES = 8 * 1024 * 1024
+
+
+class AppCoordsIn(BaseModel):
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+def _app_now_ist():
+    return datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
+
+def _app_addr(lat, lng):
+    try:
+        r = _requests.get("https://nominatim.openstreetmap.org/reverse",
+                          params={"lat": lat, "lon": lng, "format": "jsonv2"},
+                          headers={"User-Agent": "myvolt-attendance/1.0"}, timeout=5)
+        return (r.json() or {}).get("display_name")
+    except Exception:
+        return None
+
+
+async def _app_rent_paid(did, ds):
+    return bool(await db.transactions.find_one(
+        {"driver_id": did, "payment_date": ds, "status": {"$ne": "rejected"}}, {"_id": 1}))
+
+
+def _app_week_offs(drv, month):
+    return sorted(k for k, v in (drv.get("day_statuses") or {}).items()
+                  if k.startswith(month) and (v or {}).get("type") == "week_off")
+
+
+async def _app_check_week_off(drv, picked, exclude_rid=None):
+    today = today_ist().isoformat()
+    month = today[:7]
+    acct = await _driver_account(drv)
+    if acct.get("overdue_days"):
+        raise HTTPException(400, "Please pay your pending rent (up to yesterday) before applying for a week-off")
+    if not picked:
+        raise HTTPException(400, "Select at least one date")
+    for x in picked:
+        try:
+            date.fromisoformat(x)
+        except ValueError:
+            raise HTTPException(400, "Invalid date")
+        if x < today or not x.startswith(month):
+            raise HTTPException(400, "Week-off can only be applied for today or later days of the current month")
+    taken = set(_app_week_offs(drv, month))
+    q = {"driver_id": drv["id"], "month": month, "status": "pending"}
+    if exclude_rid:
+        q["id"] = {"$ne": exclude_rid}
+    pending = {x for r in await db.week_off_requests.find(q, P).to_list(100) for x in r.get("dates", [])}
+    if any(x in set(drv.get("paid_leaves") or []) for x in picked):
+        raise HTTPException(400, "A selected date is already a paid leave day")
+    if any(x in taken or x in pending for x in picked):
+        raise HTTPException(400, "A selected date already has a week-off or a pending request")
+    if len(taken | pending) + len(picked) > APP_WEEK_OFF_MAX:
+        raise HTTPException(400, f"Maximum {APP_WEEK_OFF_MAX} week-off days per month")
+    if today in picked and await _app_rent_paid(drv["id"], today):
+        raise HTTPException(400, "Today's rent is already paid, so today cannot be a week-off day")
+
+
+@api.get("/driver/week-off")
+async def app_week_off_info(drv=Depends(current_app_driver)):
+    today = today_ist().isoformat()
+    month = today[:7]
+    reqs = await db.week_off_requests.find({"driver_id": drv["id"], "month": month}, P).sort("created_at", -1).to_list(100)
+    acct = await _driver_account(drv)
+    return {
+        "today": today, "today_rent_paid": await _app_rent_paid(drv["id"], today),
+        "rent_pending": bool(acct.get("overdue_days")), "max_days": APP_WEEK_OFF_MAX,
+        "taken_dates": _app_week_offs(drv, month),
+        "leave_dates": sorted(x for x in (drv.get("paid_leaves") or []) if x.startswith(month)),
+        "pending_dates": sorted({x for r in reqs if r.get("status") == "pending" for x in r.get("dates", [])}),
+        "requests": [{"id": r["id"], "dates": r.get("dates", []), "status": r.get("status", "pending")} for r in reqs],
+    }
+
+
+@api.post("/driver/week-off")
+async def app_week_off_apply(body: dict, drv=Depends(current_app_driver)):
+    picked = sorted({str(x)[:10] for x in (body.get("dates") or [])})
+    await _app_check_week_off(drv, picked)
+    await db.week_off_requests.insert_one({
+        "id": str(uuid.uuid4()), "driver_id": drv["id"], "driver_name": drv.get("name"),
+        "driver_code": drv.get("driver_code"), "city": drv.get("city"), "month": today_ist().isoformat()[:7],
+        "dates": picked, "status": "pending", "created_at": now_iso()})
+    return {"ok": True}
+
+
+@api.put("/driver/week-off/{rid}")
+async def app_week_off_edit(rid: str, body: dict, drv=Depends(current_app_driver)):
+    req = await db.week_off_requests.find_one({"id": rid, "driver_id": drv["id"]}, P)
+    if not req or req.get("status") != "pending":
+        raise HTTPException(400, "Only a pending request can be edited")
+    if not (body.get("dates") or []):
+        res = await db.week_off_requests.delete_one({"id": rid, "status": "pending"})
+        if not res.deleted_count:
+            raise HTTPException(400, "This request was just decided and can no longer be cancelled")
+        return {"ok": True, "cancelled": True}
+    picked = sorted({str(x)[:10] for x in body.get("dates")})
+    await _app_check_week_off(drv, picked, exclude_rid=rid)
+    res = await db.week_off_requests.update_one({"id": rid, "status": "pending"},
+                                                {"$set": {"dates": picked, "updated_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(400, "This request was just decided and can no longer be edited")
+    return {"ok": True}
+
+
+@api.post("/driver/week-off/ack")
+async def app_week_off_ack(drv=Depends(current_app_driver)):
+    await db.week_off_requests.update_many({"driver_id": drv["id"], "status": "approved"}, {"$set": {"acknowledged": True}})
+    return {"ok": True}
+
+
+@api.get("/week-off-requests")
+async def admin_week_off_list(status: str = "pending", user=Depends(require("staff", "accounts", "admin"))):
+    q = {} if status == "all" else {"status": status}
+    return await db.week_off_requests.find(q, P).sort("created_at", -1).to_list(500)
+
+
+@api.post("/week-off-requests/{rid}/approve")
+async def admin_week_off_approve(rid: str, user=Depends(require("staff", "accounts", "admin"))):
+    req = await db.week_off_requests.find_one({"id": rid}, P)
+    if not req or req.get("status") != "pending":
+        raise HTTPException(400, "This request is no longer pending")
+    drv = await get_driver_or_404(req["driver_id"])
+    today = today_ist().isoformat()
+    dates = [x for x in req.get("dates", []) if x >= today]
+    if not dates:
+        raise HTTPException(400, "All requested dates have already passed. Reject this request.")
+    month = dates[0][:7]
+    if len(set(_app_week_offs(drv, month)) | set(dates)) > APP_WEEK_OFF_MAX:
+        raise HTTPException(400, f"Week off limit reached: maximum {APP_WEEK_OFF_MAX} per month")
+    for ds in dates:
+        if await _app_rent_paid(drv["id"], ds):
+            raise HTTPException(400, f"A payment is already recorded for {ds}")
+    upd = {}
+    for ds in dates:
+        upd[f"day_statuses.{ds}"] = {"type": "week_off", "replacement_given": None, "replacement_vehicle_id": None,
+                                     "reason": "Week Off (driver app request)", "no_ride": True,
+                                     "marked_by": user["id"], "marked_by_name": user["name"], "marked_at": now_iso()}
+    await db.drivers.update_one({"id": drv["id"]}, {"$set": upd, "$addToSet": {"rent_free_dates": {"$each": dates}}})
+    await db.week_off_requests.update_one({"id": rid}, {"$set": {
+        "status": "approved", "dates": dates, "decided_at": now_iso(), "decided_by_name": user["name"], "acknowledged": False}})
+    await audit(user, "Week-off request approved", "driver", drv["id"], None, ", ".join(dates), drv["id"])
+    return {"ok": True}
+
+
+@api.post("/week-off-requests/{rid}/reject")
+async def admin_week_off_reject(rid: str, user=Depends(require("staff", "accounts", "admin"))):
+    req = await db.week_off_requests.find_one({"id": rid}, P)
+    if not req or req.get("status") != "pending":
+        raise HTTPException(400, "This request is no longer pending")
+    await db.week_off_requests.update_one({"id": rid}, {"$set": {
+        "status": "rejected", "decided_at": now_iso(), "decided_by_name": user["name"]}})
+    await audit(user, "Week-off request rejected", "driver", req["driver_id"], None, ", ".join(req.get("dates", [])), req["driver_id"])
+    return {"ok": True}
+
+
+@api.post("/driver/leave")
+async def app_leave(drv=Depends(current_app_driver)):
+    raise HTTPException(403, "Paid leave can only be granted by admin")
+
+
+@api.post("/driver/account-deletion-request")
+async def app_account_deletion(drv=Depends(current_app_driver)):
+    if drv.get("account_deletion_request"):
+        return {"ok": True, "already_requested": True}
+    await db.drivers.update_one({"id": drv["id"]}, {"$set": {"account_deletion_request": {"requested_at": now_iso()}}})
+    return {"ok": True}
+
+
+@api.get("/driver/attendance/today")
+async def app_att_today(drv=Depends(current_app_driver)):
+    rec = await db.driver_attendance.find_one({"driver_id": drv["id"], "date": today_ist().isoformat()}, P)
+    return {"geofence_enabled": False, "record": rec}
+
+
+@api.post("/driver/attendance/checkin")
+async def app_att_checkin(selfie: UploadFile = File(...), lat: Optional[float] = Form(None),
+                          lng: Optional[float] = Form(None), accuracy: Optional[float] = Form(None),
+                          drv=Depends(current_app_driver)):
+    today = today_ist().isoformat()
+    if await db.driver_attendance.find_one({"driver_id": drv["id"], "date": today}, {"_id": 1}):
+        raise HTTPException(400, "Already checked in")
+    data = await selfie.read()
+    if not data:
+        raise HTTPException(400, "Selfie is required to check in")
+    if len(data) > APP_MAX_SELFIE_BYTES:
+        raise HTTPException(400, "Photo is too large. Please take the selfie again.")
+    if lat is None or lng is None:
+        raise HTTPException(400, "Location not received. Allow location access on your phone and try again.")
+    token = uuid.uuid4().hex
+    ctype = selfie.content_type if (selfie.content_type or "").startswith("image/") else "image/jpeg"
+    saved = await asyncio.to_thread(storage.put_object, f"myvolt/attendance/{token}.jpg", data, ctype)
+    now = _app_now_ist().isoformat()
+    rec = {"id": str(uuid.uuid4()), "driver_id": drv["id"], "driver_name": drv.get("name"),
+           "driver_code": drv.get("driver_code"), "driver_phone": drv.get("mobile"), "city": drv.get("city"),
+           "date": today, "check_in": now, "check_out": None, "hours": 0, "status": "Present",
+           "check_in_lat": lat, "check_in_lng": lng, "check_in_accuracy": accuracy,
+           "check_in_address": await asyncio.to_thread(_app_addr, lat, lng),
+           "selfie_token": token, "selfie_path": saved["path"], "selfie_url": f"/api/attendance-selfies/{token}",
+           "created_at": now_iso()}
+    await db.driver_attendance.insert_one(dict(rec))
+    await db.drivers.update_one({"id": drv["id"]}, {"$set": {f"app_checkins.{today}.check_in": now}})
+    return rec
+
+
+@api.post("/driver/attendance/checkout")
+async def app_att_checkout(body: Optional[AppCoordsIn] = None, drv=Depends(current_app_driver)):
+    today = today_ist().isoformat()
+    rec = await db.driver_attendance.find_one({"driver_id": drv["id"], "date": today}, P)
+    if not rec or not rec.get("check_in"):
+        raise HTTPException(400, "You have not checked in today")
+    if rec.get("check_out"):
+        raise HTTPException(400, "Already checked out")
+    now = _app_now_ist()
+    ci = datetime.fromisoformat(rec["check_in"])
+    if (now - ci).total_seconds() < 60:
+        raise HTTPException(400, "You just checked in. Please wait a minute before checking out.")
+    upd = {"check_out": now.isoformat(), "hours": round((now - ci).total_seconds() / 3600.0, 2)}
+    if body and body.lat is not None and body.lng is not None:
+        upd.update(check_out_lat=body.lat, check_out_lng=body.lng,
+                   check_out_address=await asyncio.to_thread(_app_addr, body.lat, body.lng))
+    await db.driver_attendance.update_one({"id": rec["id"]}, {"$set": upd})
+    await db.drivers.update_one({"id": drv["id"]}, {"$set": {f"app_checkins.{today}.check_out": upd["check_out"]}})
+    return {**rec, **upd}
+
+
+@api.get("/attendance-selfies/{token}")
+async def app_att_selfie(token: str):
+    rec = await db.driver_attendance.find_one({"selfie_token": token}, {"_id": 0, "selfie_path": 1})
+    if not rec:
+        raise HTTPException(404, "File not found")
+    try:
+        data, ctype = await asyncio.to_thread(storage.get_object, rec["selfie_path"])
+    except FileNotFoundError:
+        raise HTTPException(404, "File not found")
+    return Response(content=data, media_type=ctype, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@api.get("/driver-attendance")
+async def admin_driver_attendance(date_: Optional[str] = Query(None, alias="date"),
+                                  user=Depends(require("staff", "accounts", "admin"))):
+    ds = date_ or today_ist().isoformat()
+    return await db.driver_attendance.find({"date": ds}, {"_id": 0, "selfie_path": 0}).sort("check_in", 1).to_list(2000)
+
+
+# ================= driver app admin: account deletion requests =================
+@api.get("/account-deletion-requests")
+async def admin_deletion_requests(user=Depends(require("staff", "accounts", "admin"))):
+    drivers = await db.drivers.find({"account_deletion_request": {"$exists": True}},
+                                    {"_id": 0, "id": 1, "name": 1, "driver_code": 1, "mobile": 1, "city": 1,
+                                     "status": 1, "account_deletion_request": 1}).to_list(2000)
+    for d in drivers:
+        d["requested_at"] = (d.pop("account_deletion_request") or {}).get("requested_at")
+    return sorted(drivers, key=lambda d: d.get("requested_at") or "", reverse=True)
+
+
+@api.post("/drivers/{did}/account-deletion/reject")
+async def admin_deletion_reject(did: str, user=Depends(require("staff", "accounts", "admin"))):
+    drv = await get_driver_or_404(did)
+    if not drv.get("account_deletion_request"):
+        raise HTTPException(400, "There is no pending account deletion request")
+    await db.drivers.update_one({"id": did}, {"$unset": {"account_deletion_request": ""}})
+    await audit(user, "Account deletion request rejected", "driver", did, None, None, did)
+    return {"ok": True}
 
 
 app.include_router(api)

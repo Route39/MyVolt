@@ -1,0 +1,57 @@
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { Preferences } from '@capacitor/preferences';
+import dapi from "../lib/driverApi";
+
+const Ctx = createContext(null);
+
+export function DriverAuthProvider({ children }) {
+  const [data, setData] = useState(null);      // full /driver/me payload
+  const [authed, setAuthed] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const { data } = await dapi.get("/driver/me");
+      setData(data); setAuthed(true);
+    } catch (err) {
+      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+        setAuthed(false); setData(null);
+      } else {
+        const { value } = await Preferences.get({ key: "driver_token" });
+        if (value) setAuthed(true); // Maintain auth on offline/network errors
+        else setAuthed(false);
+      }
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const requestOtp = async (phone) => {
+    const { data } = await dapi.post("/driver/auth/request-otp", { phone });
+    return data;
+  };
+
+  const login = async (phone, otp) => {
+    const { data } = await dapi.post("/driver/auth/login", { phone, otp });
+    if (data.token) {
+      await Preferences.set({ key: 'driver_token', value: data.token });
+    }
+    setAuthed(true);
+    await refresh();
+    return data;
+  };
+
+  const logout = async () => {
+    try { await dapi.post("/driver/auth/logout"); } catch {}
+    await Preferences.remove({ key: 'driver_token' });
+    setAuthed(false); setData(null);
+  };
+
+  return (
+    <Ctx.Provider value={{ data, authed, loading, login, requestOtp, logout, refresh }}>
+      {children}
+    </Ctx.Provider>
+  );
+}
+
+export const useDriver = () => useContext(Ctx);

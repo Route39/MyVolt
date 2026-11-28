@@ -12,7 +12,7 @@ import { useUser } from "@/context/UserContext";
 import { VehicleSelect, useVehicles } from "@/components/Vehicles";
 import { fmtDate, fmtDateTime, inr, FLEET_CITIES, normalizeCity } from "@/lib/format";
 
-const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", driver_code: "", status: "Active" };
+const EMPTY = { name: "", mobile: "", city: "Bangalore", joining_date: "", handover_date: "", rent_start_date: "", daily_rent: "", deposit_amount: "", deposit_paid: "", driver_code: "", status: "Active" };
 
 const F = ({ label, children }) => <div className="space-y-1"><Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</Label>{children}</div>;
 
@@ -36,6 +36,8 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
               handover_date: driver.handover_date || driver.joining_date || "",
               rent_start_date: driver.rent_start_date || driver.handover_date || driver.joining_date || "",
               daily_rent: driver.daily_rent !== undefined && driver.daily_rent !== null ? String(driver.daily_rent) : "",
+              deposit_amount: driver.deposit_amount ? String(driver.deposit_amount) : "",
+              deposit_paid: driver.deposit_paid ? String(driver.deposit_paid) : "",
               driver_code: driver.driver_code || "",
               status: driver.status || "Active",
             }
@@ -68,6 +70,8 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
       handover_date: f.handover_date || f.joining_date || null,
       rent_start_date: f.rent_start_date || f.handover_date || f.joining_date || null,
       daily_rent: Number(f.daily_rent) || 0,
+      deposit_amount: Number(f.deposit_amount) || 0,
+      deposit_paid: Number(f.deposit_paid) || 0,
       status: f.status || "Active",
     };
     ["id", "summary", "adjustments", "created_at", "current_vehicle", "assignments", "vehicle_no", "package"].forEach((k) => delete body[k]);
@@ -160,6 +164,14 @@ export const DriverFormDialog = ({ open, onOpenChange, driver, onSaved }) => {
                 placeholder="Daily rent (₹, e.g. 850)"
                 data-testid="driver-form-rent"
               />
+            </F>
+            <F label="DEPOSIT AMOUNT">
+              <Input type="number" min="0" value={f.deposit_amount} onChange={set("deposit_amount")}
+                placeholder="Security deposit (₹)" data-testid="driver-form-deposit" />
+            </F>
+            <F label="DEPOSIT PAID">
+              <Input type="number" min="0" value={f.deposit_paid} onChange={set("deposit_paid")}
+                placeholder="Amount paid so far (₹)" data-testid="driver-form-deposit-paid" />
             </F>
             <F label="STATUS">
               <Select value={f.status} onValueChange={set("status")}>

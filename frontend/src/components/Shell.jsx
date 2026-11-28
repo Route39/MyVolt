@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, CalendarDays, ShieldCheck, BookText, BarChart3, IdCard, Car, UserCog, Settings, LifeBuoy, Menu, PanelLeftClose, PanelLeftOpen, Zap, LogOut, Smartphone } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -23,6 +23,7 @@ const SECTIONS = [
   { title: "Operations", items: [
     { to: "/drivers", label: "Driver Management", icon: IdCard, roles: ALL, id: "drivers" },
     { to: "/vehicles", label: "Vehicle Management", icon: Car, roles: ALL, id: "vehicles" },
+    { to: "/driver-app", label: "Driver App", icon: Smartphone, roles: ALL, id: "driver-app" },
     { to: "/staff", label: "Staff Management", icon: UserCog, roles: ["admin"], id: "staff" },
   ] },
 ];

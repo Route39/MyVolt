@@ -1,5 +1,6 @@
 import "@/App.css";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import DriverApp from "@/driver/pages/DriverApp";
 import { Loader2, Lock } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { UserProvider, useUser } from "@/context/UserContext";
@@ -17,6 +18,7 @@ import ReportsPage from "@/pages/ReportsPage";
 import DriversPage from "@/pages/DriversPage";
 import StaffPage from "@/pages/StaffPage";
 import VehiclesPage from "@/pages/VehiclesPage";
+import DriverAppPage from "@/pages/DriverAppPage";
 
 const ALL = ["staff", "accounts", "admin"];
 
@@ -66,6 +68,7 @@ const Shell = () => {
         <Route path="/reports" element={<Guard roles={["accounts", "admin"]}><ReportsPage /></Guard>} />
         <Route path="/drivers" element={<Guard roles={ALL}><DriversPage /></Guard>} />
         <Route path="/vehicles" element={<Guard roles={ALL}><VehiclesPage /></Guard>} />
+        <Route path="/driver-app" element={<Guard roles={ALL}><DriverAppPage /></Guard>} />
         <Route path="/staff" element={<Guard roles={["admin"]}><StaffPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
@@ -73,13 +76,23 @@ const Shell = () => {
   );
 };
 
+function Root() {
+  const loc = useLocation();
+  if (loc.pathname === "/driver" || loc.pathname.startsWith("/driver/")) {
+    return (<><DriverApp /><Toaster position="top-center" richColors /></>);
+  }
+  return (
+    <UserProvider>
+      <Shell />
+      <Toaster position="top-right" richColors />
+    </UserProvider>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <UserProvider>
-        <Shell />
-        <Toaster position="top-right" richColors />
-      </UserProvider>
+      <Root />
     </BrowserRouter>
   );
 }
